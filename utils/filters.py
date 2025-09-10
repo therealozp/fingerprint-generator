@@ -614,7 +614,7 @@ def filter_image_preserve_variation(
     return f_out
 
 
-def seed_pos(f_print1, filt_map, H, W, margin, n_seeds=None):
+def seed_pos(f_print1, H, W, margin, n_seeds=None):
     """
     Seeds the image with blobs by setting corresponding positions in
     filt_map and f_print1.
@@ -643,9 +643,6 @@ def seed_pos(f_print1, filt_map, H, W, margin, n_seeds=None):
     i_blobs = np.random.randint(5, total_rows - 5, n_seeds)
     j_blobs = np.random.randint(5, total_cols - 5, n_seeds)
 
-    # Mark the seed positions in filt_map
-    filt_map[i_blobs, j_blobs] = 1
-
     # Create 4x4 blocks for all seeds
     for i_offset in range(4):
         for j_offset in range(4):
@@ -656,7 +653,6 @@ def seed_pos(f_print1, filt_map, H, W, margin, n_seeds=None):
             # Use advanced indexing to set values
             idx = (i_positions.flatten(), j_positions.flatten())
             f_print1[idx] = 100
-            filt_map[idx] = 1
 
 
 # def set_filter_area(filt_map, H, W, margin, max_filter_size):

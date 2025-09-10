@@ -5,8 +5,6 @@ import os
 # Example variables (set your own paths and counts)
 path_density_maps = "density_maps"
 density_map_count = 2000
-margin = 30
-W, H = 275 - margin, 400 - margin
 
 
 def rand():
@@ -19,7 +17,7 @@ def load_random_density_map():
     return cv2.imread(filepath, cv2.IMREAD_GRAYSCALE).astype(np.float32)
 
 
-def sel_n_merg_densitymap():
+def sel_n_merg_densitymap(H, W, margin=0):
     # Load two random maps
     freq1 = load_random_density_map()
     freq2 = load_random_density_map()
