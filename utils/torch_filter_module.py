@@ -167,7 +167,7 @@ class ContinuousFilterLayer(nn.Module):
         self,
         img,
         orient_ind,
-        freq_ind,
+        freq_map,
         sigma=None,
         gamma=None,
         phase=None,
@@ -203,19 +203,7 @@ class ContinuousFilterLayer(nn.Module):
             else:
                 return torch.tensor(p, device=img.device, dtype=img.dtype).view(1, 1, 1)
 
-        # if using orient_ind_map
-        # theta_map = (torch.pi / 2.0) - torch.deg2rad(orient_ind)
-
-        # if using orient_map
         theta_map = (torch.pi / 2.0) - orient_ind
-
-        f_min = 0.075
-        f_max = 0.33
-        f_max_over_min = f_max / f_min
-
-        freq_map = f_min * torch.pow(
-            (f_max_over_min), (freq_ind - 1) / 161
-        )  # cycles per pixel
 
         theta = theta_map.to(img.device, img.dtype).view(N, 1, 1)  # [N,1,1]
         freq = freq_map.to(img.device, img.dtype).view(N, 1, 1)  # [N,1,1]

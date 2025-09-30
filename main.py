@@ -70,7 +70,7 @@ def seed_centers_from_mask(seed_img):
 
 if __name__ == "__main__":
     # Generate orientation map
-    singularity_type = 2
+    singularity_type = 5
     width = 300
     height = 500
     margin = 0  # kept only for compatibility with existing filter APIs
@@ -109,28 +109,34 @@ if __name__ == "__main__":
     orientation_map = o_map.getOrientationMap()
     print("orientation map generated.")
 
-    # quiver_plot(orientation_map)
-
-    start = time.time()
-
-    start = time.time()
     freq_map = sel_n_merg_densitymap(H=height, W=width)
 
+    maximum_width_between_ridges = 8.0
+    minimum_width_between_ridges = 5.0
+
+    f_min = 1.0 / maximum_width_between_ridges
+    f_max = 1.0 / minimum_width_between_ridges
+    f_max_over_min = f_max / f_min
+
+    freq_map = f_min * np.pow(
+        (f_max_over_min), (freq_map - 1) / 161
+    )  # cycles per pixel
+
+    print(freq_map.max(), freq_map.min(), freq_map.mean())
+
     pre_input = f_print1.copy()
-    print(f"Time taken to set filter area:{round(time.time() - start, 2)}s")
-
-    print(f"Time taken for first pass filtering:{round(time.time() - start, 2)}s")
-
     torch_out = None
 
     f_print1_tensor = torch.as_tensor(f_print1, dtype=torch.float32)
     f_print_compare_tensor = torch.as_tensor(f_print_compare, dtype=torch.float32)
 
-    freq_map_tensor = torch.as_tensor(freq_map, dtype=torch.long)
+    freq_map_tensor = torch.as_tensor(freq_map, dtype=torch.float32)
     orient_map_tensor = torch.as_tensor(orientation_map, dtype=torch.float32)
 
     print(freq_map_tensor.shape)
     print(orient_map_tensor.shape)
+    print(freq_map.max(), freq_map.min(), freq_map.mean())
+    print(orient_map_tensor.max(), orient_map_tensor.min(), orient_map_tensor.mean())
 
     flayer = ContinuousFilterLayer(
         31,
@@ -142,7 +148,7 @@ if __name__ == "__main__":
     torch_out_t = f_print1_tensor
     torch_out_compare_t = f_print_compare_tensor
 
-    for i in range(2):
+    for i in range(3):
         with torch.no_grad():
             torch_out_t = flayer(
                 torch_out_t,  # seeded image
@@ -169,3 +175,58 @@ if __name__ == "__main__":
 
     # Plot final outputs using helper f (overlay will put seeds on the 'current' subplot)
     plot_difference(torch_out, torch_out_compare)
+
+    plt.subplots(1, 2)
+    plt.figure(figsize=(16, 8))
+
+    plt.subplot(1, 2, 1)
+    plt.imshow(torch_out, cmap="gray", origin="lower")
+
+    stride = 4  # plot every 8th pixel for readability
+    ys, xs = np.mgrid[0:height:stride, 0:width:stride]
+
+    U = np.cos(np.pi / 2 - orientation_map[::stride, ::stride])
+    V = np.sin(np.pi / 2 - orientation_map[::stride, ::stride])
+    plt.quiver(
+        xs,
+        ys,
+        U,
+        V,
+        color="red",
+        angles="xy",
+        scale_units="xy",
+        scale=0.3,
+        width=0.003,
+        headaxislength=0,
+        headlength=0,
+        headwidth=0,
+    )
+    plt.gca().invert_yaxis()
+    plt.title("Dense orientation field (theta) as arrows")
+    plt.axis("off")
+
+    plt.subplot(1, 2, 2)
+    # plot every 8th pixel for readability
+    ys, xs = np.mgrid[0:height:stride, 0:width:stride]
+
+    U = np.cos(np.pi / 2 - orientation_map[::stride, ::stride])
+    V = np.sin(np.pi / 2 - orientation_map[::stride, ::stride])
+    plt.quiver(
+        xs,
+        ys,
+        U,
+        V,
+        color="red",
+        angles="xy",
+        scale_units="xy",
+        scale=0.3,
+        width=0.003,
+        headaxislength=0,
+        headlength=0,
+        headwidth=0,
+    )
+    plt.gca().invert_yaxis()
+    plt.title("Dense orientation field (theta) as arrows")
+    plt.axis("off")
+
+    plt.show()

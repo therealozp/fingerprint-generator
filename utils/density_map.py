@@ -36,7 +36,7 @@ def sel_n_merg_densitymap(H, W, margin=0):
     f_den = cv2.resize(freq, (W + margin, H + margin), interpolation=cv2.INTER_LINEAR)
 
     # Convert to integer matrix and normalize to [0, 99]
-    f_den_int = np.clip(f_den * 100, 0, 99999).astype(np.int32)
+    f_den_int = np.clip(f_den * 100, 0, 99).astype(np.int32)
     min_val, max_val = f_den_int.min(), f_den_int.max()
     f_den_int = ((f_den_int - min_val) / (max_val - min_val) * 99).astype(np.int32)
 
