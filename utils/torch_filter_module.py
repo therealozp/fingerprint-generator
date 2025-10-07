@@ -203,7 +203,7 @@ class ContinuousFilterLayer(nn.Module):
             else:
                 return torch.tensor(p, device=img.device, dtype=img.dtype).view(1, 1, 1)
 
-        theta_map = (torch.pi / 2.0) - orient_ind
+        theta_map = orient_ind
 
         theta = theta_map.to(img.device, img.dtype).view(N, 1, 1)  # [N,1,1]
         freq = freq_map.to(img.device, img.dtype).view(N, 1, 1)  # [N,1,1]
