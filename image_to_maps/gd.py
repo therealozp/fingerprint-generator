@@ -48,6 +48,30 @@ class PhaseOptim(nn.Module):
         return I_pred
 
 
+class DecomposedPhaseOptim(nn.Module):
+    def __init__(self, H, W, init="zeros"):
+        super().__init__()
+        if init == "zeros":
+            thc = torch.zeros(1, 1, H, W)
+        elif init == "randn":
+            thc = math.pi * torch.randn(1, 1, H, W)
+        else:
+            thc = init.clone().view(1, 1, H, W)
+
+        self.theta_cos = nn.Parameter(torch.cos(thc))
+        self.freq = nn.Parameter(torch.ones(1, 1, H, W) * 0.1)  # default freq
+
+    def forward(self):
+        # compute the composite phase gradients based on the orientation and frequency
+        theta_sin = torch.sqrt(1.0 - self.theta_cos**2 + 1e-8)
+        exp_term = torch.complex(
+            self.theta_cos + torch.pi / 2, self.theta_sin + torch.pi / 2
+        )
+        composite_phase_gradient = 2.0 * torch.pi * self.freq * exp_term
+        print("composite_phase datatype", composite_phase_gradient.dtype)
+        return composite_phase_gradient
+
+
 # -------- loss builder (switch components on/off as needed) --------
 def phase_losses(
     psi,
@@ -101,6 +125,29 @@ def phase_losses(
         "L_smooth": L_smooth.item(),
         "L_seed": L_seed.item(),
     }
+
+
+def unit_circle_regularization(
+    theta_cos: torch.Tensor, theta_sin: torch.Tensor
+) -> torch.Tensor:
+    """
+    Calculates the loss term to enforce the unit circle constraint: cos^2 + sin^2 = 1.
+
+    Args:
+        theta_cos: Tensor representing the cosine component.
+        theta_sin: Tensor representing the sine component.
+
+    Returns:
+        A scalar tensor representing the mean squared error loss.
+    """
+    # Calculate cos^2 + sin^2
+    sum_of_squares = theta_cos**2 + theta_sin**2
+
+    # Calculate the squared error from 1.0, and take the mean across all elements
+    # This heavily penalizes deviations from the unit circle.
+    L_constraint = F.mse_loss(sum_of_squares, torch.ones_like(sum_of_squares))
+
+    return L_constraint
 
 
 # -------- example training loop --------
@@ -168,25 +215,90 @@ def train_phase(
     )
 
 
+def train_decomposed_model(
+    I_tgt_np,
+    f_np=None,
+    th_np=None,
+    ridge_theta=True,
+    steps=2000,
+    lr=1e-2,
+    w_pix=1.0,
+    w_grad=10.0,
+    w_smooth=0.1,
+    w_seed=0.0,
+    seed_mask_np=None,
+    init="zeros",
+    device="cpu",
+):
+    H, W = I_tgt_np.shape
+    I_tgt = torch.as_tensor(I_tgt_np, dtype=torch.float32, device=device).view(
+        1, 1, H, W
+    )
+
+    f = th = seed_mask = None
+    if w_grad > 0.0:
+        assert f_np is not None and th_np is not None
+        f = torch.as_tensor(f_np, dtype=torch.float32, device=device).view(1, 1, H, W)
+        th = torch.as_tensor(th_np, dtype=torch.float32, device=device).view(1, 1, H, W)
+    if w_seed > 0.0 and seed_mask_np is not None:
+        seed_mask = torch.as_tensor(
+            seed_mask_np, dtype=torch.float32, device=device
+        ).view(1, 1, H, W)
+
+    model = DecomposedPhaseOptim(H, W, init=init).to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+
+    pbar = tqdm(range(steps), desc="train_phase")
+    for t in pbar:
+        opt.zero_grad()
+        psi = model.forward()
+        L, parts = phase_losses(
+            psi, I_tgt, f, th, ridge_theta, w_pix, w_grad, w_smooth, w_seed, seed_mask
+        )
+        regularization_losses = unit_circle_regularization(
+            model.theta_cos, model.theta_sin
+        )
+        L = L + regularization_losses
+        L.backward()
+        opt.step()
+        if (t + 1) % 200 == 0:
+            msg = (
+                f"step {t+1:4d}  L={L.item():.6f}  "
+                f"pix={parts['L_pix']:.5f} grad={parts['L_grad']:.5f}  "
+                f"smooth={parts['L_smooth']:.5f} seed={parts['L_seed']:.5f}"
+            )
+            pbar.write(msg)
+            pbar.set_postfix(L=L.item(), pix=parts["L_pix"], grad=parts["L_grad"])
+
+    with torch.no_grad():
+        I_pred = 0.5 * (1.0 + torch.cos(model.forward()))
+
+    return (
+        model.forward().detach().cpu().squeeze(0).squeeze(0).numpy(),
+        I_pred.detach().cpu().squeeze(0).squeeze(0).numpy(),
+    )
+
+
 if __name__ == "__main__":
-    H, W = 256, 256
-    yy, xx = np.mgrid[:H, :W]
-    cx, cy = W // 2, H // 2
-    X = xx - cx
-    Y = yy - cy
+    # H, W = 256, 256
+    # yy, xx = np.mgrid[:H, :W]
+    # cx, cy = W // 2, H // 2
+    # X = xx - cx
+    # Y = yy - cy
 
-    kappa = 0.16  # controls spacing of rings (ridges)
-    psi_c = kappa * np.sqrt(X * X + Y * Y)
-    img = 0.5 * (1.0 - np.cos(psi_c))
+    # kappa = 0.16  # controls spacing of rings (ridges)
+    # psi_c = kappa * np.sqrt(X * X + Y * Y)
+    # img = 0.5 * (1.0 - np.cos(psi_c))
 
-    # img = cv2.imread(
-    #     "D:\\code\\fingerprint-generator\\images\\50_whorl.jpg", cv2.IMREAD_GRAYSCALE
-    # )
-    # img = cv2.threshold(img, 127, 255, cv2.THRESH_OTSU + cv2.THRESH_BINARY)[1]
+    img = cv2.imread(
+        "C:\\Users\\Oz\\code\\fingerprint-generator\\images\\50_whorl.jpg",
+        cv2.IMREAD_GRAYSCALE,
+    )
+    img = cv2.threshold(img, 127, 255, cv2.THRESH_OTSU + cv2.THRESH_BINARY)[1]
 
-    # rescaled_dims = img.shape[0] * 0.4
-    # img = cv2.resize(img, (int(img.shape[1] * 0.4), int(img.shape[0] * 0.4)))
-    # img = img / 255.0
+    rescaled_dims = img.shape[0] * 0.4
+    img = cv2.resize(img, (int(img.shape[1] * 0.4), int(img.shape[0] * 0.4)))
+    img = img / 255.0
 
     H = img.shape[0]
     W = img.shape[1]
@@ -195,12 +307,23 @@ if __name__ == "__main__":
         img,
         w_pix=1.0,
         w_grad=0.0,
-        w_smooth=0.1,
+        w_smooth=0.001,
         steps=2000,
         lr=5e-3,
         init="randn",
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
+
+    # psi_opt, I_pred = train_decomposed_model(
+    #     img,
+    #     w_pix=1.0,
+    #     w_grad=0.0,
+    #     w_smooth=0.1,
+    #     steps=2000,
+    #     lr=5e-3,
+    #     init="randn",
+    #     device="cuda" if torch.cuda.is_available() else "cpu",
+    # )
 
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 3, 1)
