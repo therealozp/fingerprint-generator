@@ -60,16 +60,17 @@ class DecomposedPhaseOptim(nn.Module):
 
         self.theta_cos = nn.Parameter(torch.cos(thc))
         self.freq = nn.Parameter(torch.ones(1, 1, H, W) * 0.1)  # default freq
+        self.phase = nn.Parametert(torch.cos(thc))
 
     def forward(self):
         # compute the composite phase gradients based on the orientation and frequency
         theta_sin = torch.sqrt(1.0 - self.theta_cos**2 + 1e-8)
         exp_term = torch.complex(
-            self.theta_cos + torch.pi / 2, self.theta_sin + torch.pi / 2
+            self.theta_cos + torch.pi / 2, theta_sin + torch.pi / 2
         )
         composite_phase_gradient = 2.0 * torch.pi * self.freq * exp_term
-        print("composite_phase datatype", composite_phase_gradient.dtype)
-        return composite_phase_gradient
+        I_pred = 0.5 * (1.0 + torch.cos(self.psi))
+        return composite_phase_gradient, I_pred
 
 
 # -------- loss builder (switch components on/off as needed) --------
@@ -125,29 +126,6 @@ def phase_losses(
         "L_smooth": L_smooth.item(),
         "L_seed": L_seed.item(),
     }
-
-
-def unit_circle_regularization(
-    theta_cos: torch.Tensor, theta_sin: torch.Tensor
-) -> torch.Tensor:
-    """
-    Calculates the loss term to enforce the unit circle constraint: cos^2 + sin^2 = 1.
-
-    Args:
-        theta_cos: Tensor representing the cosine component.
-        theta_sin: Tensor representing the sine component.
-
-    Returns:
-        A scalar tensor representing the mean squared error loss.
-    """
-    # Calculate cos^2 + sin^2
-    sum_of_squares = theta_cos**2 + theta_sin**2
-
-    # Calculate the squared error from 1.0, and take the mean across all elements
-    # This heavily penalizes deviations from the unit circle.
-    L_constraint = F.mse_loss(sum_of_squares, torch.ones_like(sum_of_squares))
-
-    return L_constraint
 
 
 # -------- example training loop --------
@@ -211,70 +189,6 @@ def train_phase(
         I_pred = 0.5 * (1.0 + torch.cos(model.psi))
     return (
         model.psi.detach().cpu().squeeze(0).squeeze(0).numpy(),
-        I_pred.detach().cpu().squeeze(0).squeeze(0).numpy(),
-    )
-
-
-def train_decomposed_model(
-    I_tgt_np,
-    f_np=None,
-    th_np=None,
-    ridge_theta=True,
-    steps=2000,
-    lr=1e-2,
-    w_pix=1.0,
-    w_grad=10.0,
-    w_smooth=0.1,
-    w_seed=0.0,
-    seed_mask_np=None,
-    init="zeros",
-    device="cpu",
-):
-    H, W = I_tgt_np.shape
-    I_tgt = torch.as_tensor(I_tgt_np, dtype=torch.float32, device=device).view(
-        1, 1, H, W
-    )
-
-    f = th = seed_mask = None
-    if w_grad > 0.0:
-        assert f_np is not None and th_np is not None
-        f = torch.as_tensor(f_np, dtype=torch.float32, device=device).view(1, 1, H, W)
-        th = torch.as_tensor(th_np, dtype=torch.float32, device=device).view(1, 1, H, W)
-    if w_seed > 0.0 and seed_mask_np is not None:
-        seed_mask = torch.as_tensor(
-            seed_mask_np, dtype=torch.float32, device=device
-        ).view(1, 1, H, W)
-
-    model = DecomposedPhaseOptim(H, W, init=init).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
-
-    pbar = tqdm(range(steps), desc="train_phase")
-    for t in pbar:
-        opt.zero_grad()
-        psi = model.forward()
-        L, parts = phase_losses(
-            psi, I_tgt, f, th, ridge_theta, w_pix, w_grad, w_smooth, w_seed, seed_mask
-        )
-        regularization_losses = unit_circle_regularization(
-            model.theta_cos, model.theta_sin
-        )
-        L = L + regularization_losses
-        L.backward()
-        opt.step()
-        if (t + 1) % 200 == 0:
-            msg = (
-                f"step {t+1:4d}  L={L.item():.6f}  "
-                f"pix={parts['L_pix']:.5f} grad={parts['L_grad']:.5f}  "
-                f"smooth={parts['L_smooth']:.5f} seed={parts['L_seed']:.5f}"
-            )
-            pbar.write(msg)
-            pbar.set_postfix(L=L.item(), pix=parts["L_pix"], grad=parts["L_grad"])
-
-    with torch.no_grad():
-        I_pred = 0.5 * (1.0 + torch.cos(model.forward()))
-
-    return (
-        model.forward().detach().cpu().squeeze(0).squeeze(0).numpy(),
         I_pred.detach().cpu().squeeze(0).squeeze(0).numpy(),
     )
 
