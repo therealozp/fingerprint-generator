@@ -8,23 +8,30 @@ import cv2
 
 
 class DecomposedPhase(nn.Module):
-    def __init__(self, H=256, W=256, init_freq=0.1):
+    def __init__(self, H=256, W=256, init_freq=0.1, smooth=True):
         super(DecomposedPhase, self).__init__()
         self.phase = nn.Parameter(torch.randn(H, W))
-        self.theta_cos = nn.Parameter(torch.randn(H, W) * 0.1)
+
+        if smooth:
+            x_coords = torch.linspace(-torch.pi, torch.pi, W)
+            y_coords = torch.linspace(-torch.pi, torch.pi, H)
+            yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
+            phase_init = xx
+            self.phase = nn.Parameter(phase_init.clone())
+
+        init_angle = torch.pi / 4.0
+        self.theta_cos = nn.Parameter(torch.full((H, W), init_angle))
         self.freq = nn.Parameter(torch.full((H, W), init_freq))
 
     def forward(self, x=None):
-        # Normalize theta_cos to [-1, 1]
-        theta_cos = torch.tanh(self.theta_cos)
-        theta_sin = torch.sqrt(1 - theta_cos**2 + 1e-6)
+        theta_cos = torch.cos(self.theta_cos)
+        theta_sin = torch.sin(self.theta_cos)
 
         phase_gradient_x = 2.0 * torch.pi * torch.abs(self.freq) * theta_cos
         phase_gradient_y = 2.0 * torch.pi * torch.abs(self.freq) * theta_sin
 
         I_pred = 0.5 * (1.0 + torch.cos(self.phase))
 
-        # Reconstruct theta for visualization
         theta = torch.atan2(theta_sin, theta_cos)
 
         return {
@@ -379,10 +386,10 @@ def main():
     # Configuration
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     H, W = 256, 256
-    STEPS = 2000
+    STEPS = 1000
     LR = 1e-2
     INIT_FREQ = 0.1
-    QUIVER_STRIDE = 8
+    QUIVER_STRIDE = 16
 
     W_RECONSTRUCTION = 6.0
     W_PHASE_GRAD_X = 10.0
@@ -390,23 +397,23 @@ def main():
     W_ORIENTATION_SMOOTHNESS = 2.9
     W_PHASE_SMOOTHNESS = 3.3
     W_FREQUENCY_SMOOTHNESS = 0.1
-    W_ORIENTATION_CORRECTNESS = 3.0
+    W_ORIENTATION_CORRECTNESS = 0.0
 
     print(f"Using device: {DEVICE}")
 
     # Generate synthetic fingerprint (replace with real image loading)
-    yy, xx = np.mgrid[:H, :W]
-    cx, cy = W // 2, H // 2
-    X = xx - cx
-    Y = yy - cy
+    # yy, xx = np.mgrid[:H, :W]
+    # cx, cy = W // 2, H // 2
+    # X = xx - cx
+    # Y = yy - cy
 
-    kappa = 0.16
-    psi_c = kappa * np.sqrt(X * X + Y * Y)
-    img = 0.5 * (1.0 - np.cos(psi_c))
+    # kappa = 0.16
+    # psi_c = kappa * np.sqrt(X * X + Y * Y)
+    # img = 0.5 * (1.0 - np.cos(psi_c))
 
-    # Or load real image:
-    # img = cv2.imread("fingerprint.png", cv2.IMREAD_GRAYSCALE)
-    # img = img / 255.0
+    img = cv2.imread("images\\50_whorl.jpg", cv2.IMREAD_GRAYSCALE)
+    img = img / 255.0
+    H, W = img.shape
 
     # Convert to tensor
     target_image = torch.from_numpy(img).float()
