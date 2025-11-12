@@ -8,19 +8,22 @@ import cv2
 
 
 class DecomposedPhase(nn.Module):
-    def __init__(self, H=256, W=256, init_freq=0.1, smooth=True):
+    def __init__(self, H=256, W=256, init_freq=0.1, init_theta=None, smooth=True):
         super(DecomposedPhase, self).__init__()
         self.phase = nn.Parameter(torch.randn(H, W))
 
         if smooth:
-            x_coords = torch.linspace(-torch.pi, torch.pi, W)
-            y_coords = torch.linspace(-torch.pi, torch.pi, H)
+            x_coords = torch.linspace(torch.pi, 2 * torch.pi, W)
+            y_coords = torch.linspace(torch.pi, 2 * torch.pi, H)
             yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
             phase_init = xx
             self.phase = nn.Parameter(phase_init.clone())
 
-        init_angle = torch.pi / 4.0
-        self.theta_cos = nn.Parameter(torch.full((H, W), init_angle))
+        if init_theta is not None:
+            self.theta_cos = nn.Parameter(init_theta)
+        else:
+            init_angle = torch.pi / 4.0
+            self.theta_cos = nn.Parameter(torch.full((H, W), init_angle))
         self.freq = nn.Parameter(torch.full((H, W), init_freq))
 
     def forward(self, x=None):
@@ -46,7 +49,8 @@ class DecomposedPhase(nn.Module):
 
 
 def get_blockwise_orientation(
-    img: torch.Tensor, block_size: int = 8, blur_ksize: int = 5
+    img: torch.Tensor,
+    block_size: int = 8,
 ):
     dev = img.device
     dtype = img.dtype
@@ -297,6 +301,75 @@ def train(
     return model
 
 
+def main():
+    # Configuration
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    H, W = 256, 256
+    STEPS = 300
+    LR = 1e-2
+    INIT_FREQ = 0.1
+    QUIVER_STRIDE = 16
+
+    W_RECONSTRUCTION = 6.0
+    W_PHASE_GRAD_X = 10.0
+    W_PHASE_GRAD_Y = 10.0
+    W_ORIENTATION_SMOOTHNESS = 2.9
+    W_PHASE_SMOOTHNESS = 3.3
+    W_FREQUENCY_SMOOTHNESS = 0.1
+    W_ORIENTATION_CORRECTNESS = 3.0
+
+    print(f"Using device: {DEVICE}")
+
+    # Generate synthetic fingerprint (replace with real image loading)
+    # yy, xx = np.mgrid[:H, :W]
+    # cx, cy = W // 2, H // 2
+    # X = xx - cx
+    # Y = yy - cy
+
+    # kappa = 0.16
+    # psi_c = kappa * np.sqrt(X * X + Y * Y)
+    # img = 0.5 * (1.0 - np.cos(psi_c))
+
+    img = cv2.imread("images\\50_whorl.jpg", cv2.IMREAD_GRAYSCALE)
+    img = img / 255.0
+    H, W = img.shape
+
+    # Convert to tensor
+    target_image = torch.from_numpy(img).float()
+
+    # Create model
+    model = DecomposedPhase(
+        H=H,
+        W=W,
+        init_freq=INIT_FREQ,
+    )
+
+    # Train
+    model = train(
+        model,
+        target_image,
+        steps=STEPS,
+        lr=LR,
+        device=DEVICE,
+        w_reconstruction=W_RECONSTRUCTION,
+        w_phase_grad_x=W_PHASE_GRAD_X,
+        w_phase_grad_y=W_PHASE_GRAD_Y,
+        w_orientation_smoothness=W_ORIENTATION_SMOOTHNESS,
+        w_phase_smoothness=W_PHASE_SMOOTHNESS,
+        w_frequency_smoothness=W_FREQUENCY_SMOOTHNESS,
+        w_orientation_correctness=W_ORIENTATION_CORRECTNESS,
+    )
+
+    # Plot results
+    plot_results(model, target_image, quiver_stride=QUIVER_STRIDE)
+
+
+if __name__ == "__main__":
+    torch.manual_seed(1337)
+    np.random.seed(1337)
+    main()
+
+
 def plot_results(model, target_image, quiver_stride=16):
     """Plot results similar to dgd.py."""
     with torch.no_grad():
@@ -381,67 +454,47 @@ def plot_results(model, target_image, quiver_stride=16):
         plt.tight_layout()
         plt.show()
 
+        # figure to compare the phase gradients
+        fig = plt.figure(figsize=(12, 5))
+        # normalize before plot
+        phase_gradient_x = output["phase_gradient_x"].cpu().numpy()
+        phase_gradient_y = output["phase_gradient_y"].cpu().numpy()
 
-def main():
-    # Configuration
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    H, W = 256, 256
-    STEPS = 1000
-    LR = 1e-2
-    INIT_FREQ = 0.1
-    QUIVER_STRIDE = 16
+        actual_phase_grad_x = np.gradient(phase, axis=1)
+        actual_phase_grad_y = np.gradient(phase, axis=0)
 
-    W_RECONSTRUCTION = 6.0
-    W_PHASE_GRAD_X = 10.0
-    W_PHASE_GRAD_Y = 10.0
-    W_ORIENTATION_SMOOTHNESS = 2.9
-    W_PHASE_SMOOTHNESS = 3.3
-    W_FREQUENCY_SMOOTHNESS = 0.1
-    W_ORIENTATION_CORRECTNESS = 0.0
+        # normalize arrays to [0,1] for visualization
+        def _normalize(arr):
+            a = np.nan_to_num(arr)
+            mn = a.min()
+            mx = a.max()
+            if mx - mn < 1e-8:
+                return np.zeros_like(a)
+            return (a - mn) / (mx - mn)
 
-    print(f"Using device: {DEVICE}")
+        phase_gradient_x = _normalize(phase_gradient_x)
+        phase_gradient_y = _normalize(phase_gradient_y)
+        actual_phase_grad_x = _normalize(actual_phase_grad_x)
+        actual_phase_grad_y = _normalize(actual_phase_grad_y)
 
-    # Generate synthetic fingerprint (replace with real image loading)
-    # yy, xx = np.mgrid[:H, :W]
-    # cx, cy = W // 2, H // 2
-    # X = xx - cx
-    # Y = yy - cy
+        plt.subplot(2, 2, 1)
+        plt.title("Phase Gradient X from Orientation")
+        plt.imshow(phase_gradient_x, cmap="gray")
+        plt.axis("off")
 
-    # kappa = 0.16
-    # psi_c = kappa * np.sqrt(X * X + Y * Y)
-    # img = 0.5 * (1.0 - np.cos(psi_c))
+        plt.subplot(2, 2, 2)
+        plt.title("Phase Gradient X from Phase")
+        plt.imshow(actual_phase_grad_x, cmap="gray")
+        plt.axis("off")
 
-    img = cv2.imread("images\\50_whorl.jpg", cv2.IMREAD_GRAYSCALE)
-    img = img / 255.0
-    H, W = img.shape
+        plt.subplot(2, 2, 3)
+        plt.title("Phase Gradient Y from Orientation")
+        plt.imshow(phase_gradient_y, cmap="gray")
+        plt.axis("off")
 
-    # Convert to tensor
-    target_image = torch.from_numpy(img).float()
-
-    # Create model
-    model = DecomposedPhase(H=H, W=W, init_freq=INIT_FREQ)
-
-    # Train
-    model = train(
-        model,
-        target_image,
-        steps=STEPS,
-        lr=LR,
-        device=DEVICE,
-        w_reconstruction=W_RECONSTRUCTION,
-        w_phase_grad_x=W_PHASE_GRAD_X,
-        w_phase_grad_y=W_PHASE_GRAD_Y,
-        w_orientation_smoothness=W_ORIENTATION_SMOOTHNESS,
-        w_phase_smoothness=W_PHASE_SMOOTHNESS,
-        w_frequency_smoothness=W_FREQUENCY_SMOOTHNESS,
-        w_orientation_correctness=W_ORIENTATION_CORRECTNESS,
-    )
-
-    # Plot results
-    plot_results(model, target_image, quiver_stride=QUIVER_STRIDE)
-
-
-if __name__ == "__main__":
-    torch.manual_seed(1337)
-    np.random.seed(1337)
-    main()
+        plt.subplot(2, 2, 4)
+        plt.title("Phase Gradient Y from Phase")
+        plt.imshow(actual_phase_grad_y, cmap="gray")
+        plt.axis("off")
+        plt.tight_layout()
+        plt.show()
