@@ -11,16 +11,42 @@ from plotting_utils import plot_results
 
 
 class DecomposedPhase(nn.Module):
-    def __init__(self, H=256, W=256, init_freq=0.1, init_theta=None, smooth=True):
-        super(DecomposedPhase, self).__init__()
-        self.phase = nn.Parameter(torch.randn(H, W))
+    def __init__(
+        self,
+        H=256,
+        W=256,
+        init_freq=0.1,
+        init_theta=None,
+        init_phase=None,
+        smooth=True,
+        spiral_phase_coords=[],
+        spiral_phase_polarities=[],
+    ):
+        assert len(spiral_phase_coords) == len(
+            spiral_phase_polarities
+        ), "spiral_phase_coords and spiral_phase_polarities must have the same length"
 
-        if smooth:
-            x_coords = torch.linspace(torch.pi, 2 * torch.pi, W)
-            y_coords = torch.linspace(torch.pi, 2 * torch.pi, H)
-            yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
-            phase_init = xx
-            self.phase = nn.Parameter(phase_init.clone())
+        super(DecomposedPhase, self).__init__()
+        if init_phase is not None:
+            self.phase = nn.Parameter(torch.tensor(init_phase, dtype=torch.float32))
+        else:
+            self.phase = nn.Parameter(torch.randn(H, W))
+        spiral_phase = torch.zeros(H, W)
+        y_range = torch.arange(H)
+        x_range = torch.arange(W)
+
+        Y, X = torch.meshgrid(y_range, x_range, indexing="ij")
+        for (yy, xx), polarity in zip(spiral_phase_coords, spiral_phase_polarities):
+            spiral_phase += polarity * torch.arctan2(Y - yy, X - xx)
+
+        self.spiral_phase = spiral_phase
+
+        # if smooth:
+        #     x_coords = torch.linspace(torch.pi, 2 * torch.pi, W)
+        #     y_coords = torch.linspace(torch.pi, 2 * torch.pi, H)
+        #     yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
+        #     phase_init = xx
+        #     self.phase = nn.Parameter(phase_init.clone())
 
         if init_theta is not None:
             self.theta_cos = nn.Parameter(init_theta)
@@ -36,7 +62,7 @@ class DecomposedPhase(nn.Module):
         phase_gradient_x = 2.0 * torch.pi * torch.abs(self.freq) * theta_cos
         phase_gradient_y = 2.0 * torch.pi * torch.abs(self.freq) * theta_sin
 
-        I_pred = 0.5 * (1.0 + torch.cos(self.phase))
+        I_pred = 0.5 * (1.0 - torch.cos(self.phase + self.spiral_phase))
 
         theta = torch.atan2(theta_sin, theta_cos)
 
@@ -172,7 +198,6 @@ def loss_fn(
         )
 
     theta = model_output["theta"]
-    # average orientations robustly by averaging doubled-angle sin/cos in non-overlapping 8x8 blocks
     cos2 = torch.cos(2.0 * theta)
     sin2 = torch.sin(2.0 * theta)
 
@@ -310,9 +335,9 @@ def main():
     W_RECONSTRUCTION = 3.0
     W_PHASE_GRAD_X = 10.0
     W_PHASE_GRAD_Y = 10.0
-    W_ORIENTATION_SMOOTHNESS = 2.9
+    W_ORIENTATION_SMOOTHNESS = 0.0
     W_PHASE_SMOOTHNESS = 6.0
-    W_FREQUENCY_SMOOTHNESS = 0.1
+    W_FREQUENCY_SMOOTHNESS = 6.0
     W_ORIENTATION_CORRECTNESS = 3.0
 
     print(f"Using device: {DEVICE}")
@@ -327,7 +352,7 @@ def main():
     # psi_c = kappa * np.sqrt(X * X + Y * Y)
     # img = 0.5 * (1.0 - np.cos(psi_c))
 
-    img = cv2.imread(os.path.join("..", "images", "50_whorl.jpg"), cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(os.path.join("images", "spiral_phase.jpg"), cv2.IMREAD_GRAYSCALE)
     img = img / 255.0
     H, W = img.shape
 
@@ -339,6 +364,9 @@ def main():
         H=H,
         W=W,
         init_freq=INIT_FREQ,
+        init_phase=get_init_phase(H, W),
+        spiral_phase_coords=[(95, 128), (40, 55), (128, 200)],
+        spiral_phase_polarities=[+1, -1, -1],
     )
 
     # Train
@@ -359,6 +387,18 @@ def main():
 
     # Plot results
     plot_results(model, target_image, quiver_stride=QUIVER_STRIDE)
+
+
+def get_init_phase(H, W):
+    yy, xx = np.mgrid[:H, :W]
+    cx, cy = W // 2, H // 2
+    X = xx - cx
+    Y = yy - cy
+
+    # radial phase
+    kappa = 0.08  # controls spacing of rings (ridges)
+    psi_c = kappa * np.sqrt(X * X + Y * Y)
+    return psi_c
 
 
 if __name__ == "__main__":
