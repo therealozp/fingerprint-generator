@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import torchvision.transforms.functional as TF
 import cv2
 import os
-from utils import *
+
+from plotting_utils import plot_results
 
 
 class DecomposedPhase(nn.Module):
@@ -188,12 +189,6 @@ def loss_fn(
 
     orientation_windows = 0.5 * torch.atan2(sin2_pool, cos2_pool)
     orientation_windows = torch.remainder(orientation_windows, torch.pi)
-
-    # orientation_windows = (
-    #     get_blockwise_orientation(I_pred.unsqueeze(0).unsqueeze(0), block_size=8)
-    #     .squeeze(0)
-    #     .squeeze(0)
-    # )
 
     pred_cos2 = torch.cos(2.0 * orientation_windows)
     pred_sin2 = torch.sin(2.0 * orientation_windows)

@@ -28,8 +28,7 @@ def generate_custom_gabor_torch(
     sigma=3.0,
     phase=0.0,
 ):
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = "cpu"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     theta = torch.tensor(theta, device=device)
 
