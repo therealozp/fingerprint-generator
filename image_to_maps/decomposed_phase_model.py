@@ -7,7 +7,12 @@ import torchvision.transforms.functional as TF
 import cv2
 import os
 
-from plotting_utils import plot_results
+from plotting_utils import (
+    plot_results,
+    plot_first_order_grads,
+    plot_second_order_grads,
+    plot_change_in_value_per_stripe,
+)
 
 
 class DecomposedPhase(nn.Module):
@@ -27,8 +32,15 @@ class DecomposedPhase(nn.Module):
         ), "spiral_phase_coords and spiral_phase_polarities must have the same length"
 
         super(DecomposedPhase, self).__init__()
+
         if init_phase is not None:
             self.phase = nn.Parameter(torch.tensor(init_phase, dtype=torch.float32))
+        elif smooth:
+            x_coords = torch.linspace(torch.pi, 2 * torch.pi, W)
+            y_coords = torch.linspace(torch.pi, 2 * torch.pi, H)
+            yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
+            phase_init = xx
+            self.phase = nn.Parameter(phase_init.clone())
         else:
             self.phase = nn.Parameter(torch.randn(H, W))
         spiral_phase = torch.zeros(H, W)
@@ -39,14 +51,7 @@ class DecomposedPhase(nn.Module):
         for (yy, xx), polarity in zip(spiral_phase_coords, spiral_phase_polarities):
             spiral_phase += polarity * torch.arctan2(Y - yy, X - xx)
 
-        self.spiral_phase = spiral_phase
-
-        # if smooth:
-        #     x_coords = torch.linspace(torch.pi, 2 * torch.pi, W)
-        #     y_coords = torch.linspace(torch.pi, 2 * torch.pi, H)
-        #     yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
-        #     phase_init = xx
-        #     self.phase = nn.Parameter(phase_init.clone())
+        self.spiral_phase = nn.Parameter(spiral_phase, requires_grad=False)
 
         if init_theta is not None:
             self.theta_cos = nn.Parameter(init_theta)
@@ -332,13 +337,13 @@ def main():
     INIT_FREQ = 0.1
     QUIVER_STRIDE = 16
 
-    W_RECONSTRUCTION = 3.0
-    W_PHASE_GRAD_X = 10.0
-    W_PHASE_GRAD_Y = 10.0
-    W_ORIENTATION_SMOOTHNESS = 0.0
-    W_PHASE_SMOOTHNESS = 6.0
-    W_FREQUENCY_SMOOTHNESS = 6.0
-    W_ORIENTATION_CORRECTNESS = 3.0
+    W_RECONSTRUCTION = 1.0
+    W_PHASE_GRAD_X = 0.0
+    W_PHASE_GRAD_Y = 0.0
+    W_ORIENTATION_SMOOTHNESS = 3.0
+    W_PHASE_SMOOTHNESS = 20.0
+    W_FREQUENCY_SMOOTHNESS = 3.0
+    W_ORIENTATION_CORRECTNESS = 6.0
 
     print(f"Using device: {DEVICE}")
 
@@ -364,7 +369,7 @@ def main():
         H=H,
         W=W,
         init_freq=INIT_FREQ,
-        init_phase=get_init_phase(H, W),
+        smooth=True,
         spiral_phase_coords=[(95, 128), (40, 55), (128, 200)],
         spiral_phase_polarities=[+1, -1, -1],
     )
@@ -387,6 +392,23 @@ def main():
 
     # Plot results
     plot_results(model, target_image, quiver_stride=QUIVER_STRIDE)
+    plot_first_order_grads(model)
+    plot_second_order_grads(model)
+    plot_change_in_value_per_stripe(model)
+
+    plt.figure(figsize=(12, 6))
+    image_without_spirals = 0.5 * (1.0 - torch.cos(model.phase.detach()))
+
+    plt.subplot(1, 2, 1)
+    plt.title("Reconstructed Image without Spiral Phase")
+    plt.imshow(image_without_spirals.cpu(), cmap="gray")
+    plt.axis("off")
+
+    plt.subplot(1, 2, 2)
+    plt.title("Spiral Phase Component")
+    plt.imshow(model.spiral_phase.cpu(), cmap="gray")
+    plt.axis("off")
+    plt.show()
 
 
 def get_init_phase(H, W):
@@ -396,7 +418,7 @@ def get_init_phase(H, W):
     Y = yy - cy
 
     # radial phase
-    kappa = 0.08  # controls spacing of rings (ridges)
+    kappa = 0.32  # controls spacing of rings (ridges)
     psi_c = kappa * np.sqrt(X * X + Y * Y)
     return psi_c
 
