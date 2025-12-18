@@ -30,7 +30,7 @@ def plot_results(model, target_image, quiver_stride=16):
         V = np.sin(theta)[::s, ::s]
 
         # Create figure with subplots
-        fig = plt.figure(figsize=(16, 12))
+        fig = plt.figure(figsize=(12, 5))
 
         # Original image
         plt.subplot(2, 3, 1)

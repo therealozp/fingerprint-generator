@@ -42,7 +42,7 @@ class DecomposedPhase(nn.Module):
             phase_init = xx
             self.phase = nn.Parameter(phase_init.clone())
         else:
-            self.phase = nn.Parameter(torch.randn(H, W))
+            self.phase = nn.Parameter(torch.zeros(H, W))
         spiral_phase = torch.zeros(H, W)
         y_range = torch.arange(H)
         x_range = torch.arange(W)
@@ -140,6 +140,56 @@ def laplacian_2d(u: torch.Tensor) -> torch.Tensor:
     return (up + down + left + right) - 4.0 * center
 
 
+import torch
+import torch.nn.functional as F
+
+
+def alignment_loss(phase_image, epsilon=1e-8):
+    # Ensure input is 4D for padding operations if needed, or handle slicing directly
+    if phase_image.dim() == 2:
+        phase_image = phase_image.unsqueeze(0)  # Add Batch dim
+
+    # dy: Gradient in vertical direction
+    dy = phase_image[:, 1:, :] - phase_image[:, :-1, :]
+    # dx: Gradient in horizontal direction
+    dx = phase_image[:, :, 1:] - phase_image[:, :, :-1]
+
+    # Align dimensions (trim the last row/col to match sizes)
+    # We create a vector field G of shape (Batch, 2, H-1, W-1)
+    g_y = dy[:, :, :-1]
+    g_x = dx[:, :-1, :]
+
+    # Stack to create gradient vectors: shape [Batch, 2, H-1, W-1]
+    gradients = torch.stack((g_x, g_y), dim=1)
+
+    # 2. Normalize Vectors (We only care about Direction, not Magnitude)
+    # This prevents the massive magnitude of a "cliff" from dominating the loss
+    magnitudes = torch.norm(gradients, dim=1, keepdim=True)
+    normalized_grads = gradients / (magnitudes + epsilon)
+
+    # 3. Compute Cosine Similarity with Neighbors
+    # We compare pixel (i, j) with (i+1, j) and (i, j+1)
+
+    # Slice the normalized field
+    current_pixel = normalized_grads[:, :, :-1, :-1]  # Top-Left portion
+    neighbor_right = normalized_grads[:, :, :-1, 1:]  # Shifted Right
+    neighbor_down = normalized_grads[:, :, 1:, :-1]  # Shifted Down
+
+    # Dot product of normalized vectors = Cosine Similarity
+    # dim=1 is the channel dimension (x,y components)
+    sim_right = torch.sum(current_pixel * neighbor_right, dim=1)
+    sim_down = torch.sum(current_pixel * neighbor_down, dim=1)
+
+    # 4. The Loss Function
+    # We want similarity to be +1.
+    # Loss = 1 - similarity.
+    # Range: 0 (perfect alignment) to 2 (perfect reversal/fold)
+    loss_x = 1.0 - sim_right
+    loss_y = 1.0 - sim_down
+
+    return torch.mean(loss_x + loss_y)
+
+
 def loss_fn(
     model_output,
     target_image,
@@ -150,6 +200,7 @@ def loss_fn(
     w_orientation_smoothness=0.1,
     w_phase_smoothness=0.01,
     w_frequency_smoothness=0.1,
+    w_phase_alignment=0.1,
 ):
     """
     Compute total loss with components.
@@ -191,6 +242,8 @@ def loss_fn(
     freq = model_output["freq"]
     laplacian_freq = laplacian_2d(freq)
     freq_smoothness_loss = torch.mean(laplacian_freq**2)
+
+    phase_alignment_loss = alignment_loss(phase)
 
     # Orientation correctness loss
     with torch.no_grad():
@@ -241,6 +294,7 @@ def loss_fn(
         + w_phase_smoothness * phase_smoothness_loss
         + w_frequency_smoothness * freq_smoothness_loss
         + w_orientation_correctness * orientation_correctness_loss
+        + w_phase_alignment * phase_alignment_loss
     )
 
     loss_dict = {
@@ -269,6 +323,7 @@ def train(
     w_phase_smoothness=0.01,
     w_frequency_smoothness=0.1,
     w_orientation_correctness=1.0,
+    w_phase_alignment=1.0,
 ):
     """
     Training loop.
@@ -307,6 +362,7 @@ def train(
             w_phase_smoothness=w_phase_smoothness,
             w_frequency_smoothness=w_frequency_smoothness,
             w_orientation_correctness=w_orientation_correctness,
+            w_phase_alignment=w_phase_alignment,
         )
 
         loss.backward()
@@ -337,13 +393,14 @@ def main():
     INIT_FREQ = 0.1
     QUIVER_STRIDE = 16
 
-    W_RECONSTRUCTION = 1.0
+    W_RECONSTRUCTION = 6.0
     W_PHASE_GRAD_X = 0.0
     W_PHASE_GRAD_Y = 0.0
-    W_ORIENTATION_SMOOTHNESS = 3.0
-    W_PHASE_SMOOTHNESS = 20.0
-    W_FREQUENCY_SMOOTHNESS = 3.0
-    W_ORIENTATION_CORRECTNESS = 6.0
+    W_ORIENTATION_SMOOTHNESS = 0.0
+    W_PHASE_SMOOTHNESS = 2.0
+    W_FREQUENCY_SMOOTHNESS = 0.0
+    W_ORIENTATION_CORRECTNESS = 0.0
+    W_PHASE_ALIGNMENT = 0.0
 
     print(f"Using device: {DEVICE}")
 
@@ -369,7 +426,8 @@ def main():
         H=H,
         W=W,
         init_freq=INIT_FREQ,
-        smooth=True,
+        # smooth=True,
+        # init_phase=get_init_phase(H, W),
         spiral_phase_coords=[(95, 128), (40, 55), (128, 200)],
         spiral_phase_polarities=[+1, -1, -1],
     )
@@ -388,6 +446,7 @@ def main():
         w_phase_smoothness=W_PHASE_SMOOTHNESS,
         w_frequency_smoothness=W_FREQUENCY_SMOOTHNESS,
         w_orientation_correctness=W_ORIENTATION_CORRECTNESS,
+        w_phase_alignment=W_PHASE_ALIGNMENT,
     )
 
     # Plot results
@@ -418,7 +477,7 @@ def get_init_phase(H, W):
     Y = yy - cy
 
     # radial phase
-    kappa = 0.32  # controls spacing of rings (ridges)
+    kappa = 0.35  # controls spacing of rings (ridges)
     psi_c = kappa * np.sqrt(X * X + Y * Y)
     return psi_c
 
