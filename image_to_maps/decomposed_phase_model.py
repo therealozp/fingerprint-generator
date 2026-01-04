@@ -405,14 +405,19 @@ def main():
     print(f"Using device: {DEVICE}")
 
     # Generate synthetic fingerprint (replace with real image loading)
-    # yy, xx = np.mgrid[:H, :W]
-    # cx, cy = W // 2, H // 2
-    # X = xx - cx
-    # Y = yy - cy
+    yy, xx = np.mgrid[:H, :W]
+    cx, cy = W // 2, H // 2
+    X = xx - cx
+    Y = yy - cy
 
-    # kappa = 0.16
-    # psi_c = kappa * np.sqrt(X * X + Y * Y)
-    # img = 0.5 * (1.0 - np.cos(psi_c))
+    kappa = 0.32
+    psi_c = kappa * np.sqrt(X * X + Y * Y)
+    img = 0.5 * (1.0 - np.cos(psi_c))
+    cv2.imwrite("images/cont_phase.jpg", (img * 255).astype(np.uint8))
+
+    import sys
+
+    sys.exit(0)
 
     img = cv2.imread(os.path.join("images", "spiral_phase.jpg"), cv2.IMREAD_GRAYSCALE)
     img = img / 255.0

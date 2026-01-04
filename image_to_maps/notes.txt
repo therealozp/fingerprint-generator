@@ -1,0 +1,3 @@
+if the phase map cannot be learned (either due to structural overfittings and whatnot) but can be "estimated" from minutiae and other information:
+- from a list of minutiae, core points, and delta, learn a feasible CONTINUOUS orientation map and frequency map?
+- after this, we can add this to the spiral phase and perform normal filtering?
