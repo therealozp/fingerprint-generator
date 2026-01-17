@@ -70,9 +70,9 @@ def seed_centers_from_mask(seed_img):
 
 if __name__ == "__main__":
     # Generate orientation map
-    singularity_type = 5
-    width = 300
-    height = 500
+    singularity_type = 3
+    width = 256
+    height = 256
     margin = 0  # kept only for compatibility with existing filter APIs
     padding = 0
     f_print1 = np.zeros((height, width), dtype=np.float32)
@@ -122,8 +122,6 @@ if __name__ == "__main__":
         (f_max_over_min), (freq_map - 1) / 161
     )  # cycles per pixel
 
-    print(freq_map.max(), freq_map.min(), freq_map.mean())
-
     pre_input = f_print1.copy()
     torch_out = None
 
@@ -135,6 +133,7 @@ if __name__ == "__main__":
 
     print(freq_map_tensor.shape)
     print(orient_map_tensor.shape)
+
     print(freq_map.max(), freq_map.min(), freq_map.mean())
     print(orient_map_tensor.max(), orient_map_tensor.min(), orient_map_tensor.mean())
 
