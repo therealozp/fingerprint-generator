@@ -281,7 +281,7 @@ if __name__ == "__main__":
 
             plt.figure(figsize=(14, 6))
             plt.subplot(1, 3, 1)
-            plt.title("Input image")
+            plt.title("Cos(2theta)")
             plt.imshow(x[0, 0].cpu().numpy(), cmap="gray")
             plt.axis("off")
 
@@ -291,7 +291,7 @@ if __name__ == "__main__":
             plt.axis("off")
 
             plt.subplot(1, 3, 3)
-            plt.title("Phase (phi)")
+            plt.title("Predicted full image")
             plt.imshow(pred_f[0, 0].cpu().numpy(), cmap="gray")
             plt.axis("off")
 
