@@ -10,6 +10,9 @@ from utils.filters import *
 from utils.density_map import *
 from utils.unwrapping import unwrap_with_smart_cuts
 
+from pyperlin import FractalPerlin2D
+import torch
+
 
 def generate_surface(
     height: int,
@@ -74,8 +77,7 @@ def generate_sample(
         rng=rng,
     )
     wrapped = wrap_phase(gt)
-    noisy_input = add_noise(wrapped, noise_level=noise_level, rng=rng)
-    return noisy_input, gt
+    return wrapped, gt
 
 
 def generate_arch(width, height):
@@ -108,8 +110,36 @@ def generate_arch(width, height):
     return orientation_map, unwrapped_orientation
 
 
+def show_one_sample():
+    rng = np.random.default_rng()
+
+    noisy_input, gt = generate_sample(
+        H,
+        W,
+        noise_level=0.1,
+        min_gauss_sigma=30.0,
+        max_gauss_sigma=50.0,
+        scaling_range=(1.3, 3.2),
+        rng=rng,
+    )
+
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 2, 1)
+    plt.title("Wrapped Phase with Noise")
+    plt.imshow(noisy_input, cmap="gray")
+
+    plt.colorbar()
+
+    plt.subplot(1, 2, 2)
+    plt.title("Ground Truth Unwrapped Phase")
+    plt.imshow(gt, cmap="gray")
+    plt.colorbar()
+    plt.show()
+
+
 # --- Execution Example ---
 from tqdm import tqdm
+import sys
 
 if __name__ == "__main__":
     H, W = 256, 256
@@ -131,7 +161,7 @@ if __name__ == "__main__":
                 noise_level=0.1,
                 min_gauss_sigma=30.0,
                 max_gauss_sigma=50.0,
-                scaling_range=(1.0, 4.5),
+                scaling_range=(1.3, 3.7),
                 rng=rng,
             )
 
