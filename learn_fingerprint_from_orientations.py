@@ -112,6 +112,18 @@ class FingerprintLoss(nn.Module):
         self.lambda_norm = lambda_norm
         self.lambda_grad = lambda_grad
 
+    def multiscale_mse_loss(self, pred, target, scales=[1, 2, 4, 8, 16]):
+        loss = 0
+        for scale in scales:
+            if scale == 1:
+                loss += self.mse(pred, target)
+            else:
+                pool_layer = nn.AvgPool2d(kernel_size=scale, stride=scale)
+                p_down = pool_layer(pred)
+                t_down = pool_layer(target)
+                loss += self.mse(p_down, t_down)
+        return loss
+
     def gradient_loss(self, pred_sin, pred_cos, orientation_field):
         # orientation_field is in radians (0 to pi)
         # We want the gradient of the phase (atan2(sin, cos)) to align with orientation
@@ -122,11 +134,12 @@ class FingerprintLoss(nn.Module):
         return 0.0
 
     def forward(self, pred_cont, pred_full, pred_phasor, target_cont, target_full):
-        loss_cont = self.mse(pred_cont, target_cont)
-        loss_full = self.mse(pred_full, target_full)
+        loss_cont = self.multiscale_mse_loss(pred_cont, target_cont)
+        loss_full = self.multiscale_mse_loss(pred_full, target_full)
 
         cos_c = pred_phasor[:, 0:1, :, :]
         sin_c = pred_phasor[:, 1:2, :, :]
+
         norm_map = cos_c**2 + sin_c**2
         loss_norm = self.mse(norm_map, torch.ones_like(norm_map))
 
