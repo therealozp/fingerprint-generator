@@ -3,3 +3,5 @@ __*
 *_images/
 *_locations/
 data/
+*data/
+checkpoints/

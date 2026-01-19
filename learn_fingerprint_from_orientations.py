@@ -255,7 +255,7 @@ if __name__ == "__main__":
         minutiae_paths=train_minutiae,
     )
 
-    cfg = TrainConfig(epochs=20, lr=1e-1)
+    cfg = TrainConfig(epochs=20, lr=1e-4)
     loader = DataLoader(
         train_ds,
         batch_size=cfg.batch_size,
