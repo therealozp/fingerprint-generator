@@ -12,10 +12,10 @@ model = OrientationUnwrappingNet(auxiliary_channels=0).to(DEVICE)
 criterion = UnwrappingCompositeLoss(lambda_per=1.0, lambda_grad=0.1)
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
-wrapped_data_dir = "./phase_data/wrapped"
+wrapped_data_dir = "./phase_0_pi_data/wrapped"
 filename_list = sorted(os.listdir(wrapped_data_dir))
 
-ground_truth_data_dir = "./phase_data/ground_truth"
+ground_truth_data_dir = "./phase_0_pi_data/ground_truth"
 train_split = int(0.8 * len(filename_list))
 
 train_list = filename_list[:train_split]
@@ -38,7 +38,12 @@ test_ds = OrientationDataset(
 train_loader = DataLoader(train_ds, batch_size=16, shuffle=True)
 test_loader = DataLoader(test_ds, batch_size=16, shuffle=False)
 
-NUM_EPOCHS = 30
+# Save the model checkpoint
+os.makedirs("checkpoints", exist_ok=True)
+torch.save(model.state_dict(), "checkpoints/orientation_unwrapping_net.pth")
+
+NUM_EPOCHS = 100
+lowest_val_loss = float("inf")
 for epoch in range(NUM_EPOCHS):
     model.train()
     train_loss = 0.0
@@ -81,7 +86,9 @@ for epoch in range(NUM_EPOCHS):
 
     avg_val_loss = val_loss / len(test_ds)
     print(f"Epoch {epoch+1}/{NUM_EPOCHS} - Avg Validation Loss: {avg_val_loss:.4f}")
-
-# Save the model checkpoint
-os.makedirs("checkpoints", exist_ok=True)
-torch.save(model.state_dict(), "checkpoints/orientation_unwrapping_net.pth")
+    if avg_val_loss < lowest_val_loss:
+        lowest_val_loss = avg_val_loss
+        torch.save(
+            model.state_dict(), "checkpoints/orientation_unwrapping_net_best.pth"
+        )
+        print(f"  --> New best model saved with validation loss: {lowest_val_loss:.4f}")

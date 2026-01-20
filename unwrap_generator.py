@@ -144,7 +144,7 @@ import sys
 if __name__ == "__main__":
     H, W = 256, 256
     SAMPLES = 10000
-    OUTPUT_DIR = "./phase_data_0_pi"
+    OUTPUT_DIR = "./phase_0_pi_data"
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(os.path.join(OUTPUT_DIR, "wrapped"), exist_ok=True)
