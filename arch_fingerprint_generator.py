@@ -35,11 +35,13 @@ def select_and_merge_density_maps(width, height):
     return f_den
 
 
-def reconstruct_continuous_phase(unwrapped_orientation, mask, block_size=8, f=0.15):
+def reconstruct_continuous_phase(
+    unwrapped_orientation, mask, block_size=8, freq_map=None, f=0.12
+):
     # 1. Compute the Gradient Field G (Eq 13) using Complex Exponentials
     # G(m,n) = 2 * pi * f * exp(i * (O_u + pi/2))
     # This replaces manual sin/cos calculations.
-    magnitude = 2 * np.pi * f
+    magnitude = 2 * np.pi * freq_map if freq_map is not None else f * 2 * np.pi
 
     # The orientation is shifted by pi/2 to be normal to the ridges
     complex_orientation = np.exp(1j * (unwrapped_orientation + np.pi / 2))
@@ -164,11 +166,23 @@ def generate_fingerprint(
     spiral_images_dir,
     minutiae_dir,
     orientation_map_dir,
+    freq_map_dir,
     height,
     width,
 ):
     global start_index
     singularity_type = 1
+
+    if not os.path.exists(continous_images_dir):
+        os.makedirs(continous_images_dir)
+    if not os.path.exists(spiral_images_dir):
+        os.makedirs(spiral_images_dir)
+    if not os.path.exists(minutiae_dir):
+        os.makedirs(minutiae_dir)
+    if not os.path.exists(orientation_map_dir):
+        os.makedirs(orientation_map_dir)
+    if not os.path.exists(freq_map_dir):
+        os.makedirs(freq_map_dir)
 
     core_positions, delta_positions, arch_fact1, arch_fact2, k_arch = (
         init_para_canonical(H=height, W=width, singularity_type=singularity_type)
@@ -203,12 +217,18 @@ def generate_fingerprint(
         mask=np.ones_like(orientation_map, dtype=bool),
         singularities=singularities,
     )
+    freq_map = select_and_merge_density_maps(width, height)
+    freq_map_jitter = (
+        (freq_map - np.min(freq_map)) / (np.max(freq_map) - np.min(freq_map)) * 0.05
+    )
+    base_freq = np.random.uniform(0.057, 0.113)
+    freq_map = base_freq + freq_map_jitter
 
     phase = reconstruct_continuous_phase(
         unwrapped_orientation=unwrapped_orientation,
         mask=np.ones_like(unwrapped_orientation, dtype=bool),
         block_size=1,
-        f=0.12,
+        freq_map=freq_map,
     )
     # minor_noise_factor = phase.std() * 0.2
     # freq_map = select_and_merge_density_maps(width, height) * minor_noise_factor
@@ -253,6 +273,7 @@ def generate_fingerprint(
         os.path.join(spiral_images_dir, f"{start_index}.png"), spiral_image, cmap="gray"
     )
     np.save(os.path.join(orientation_map_dir, f"{start_index}.npy"), orientation_map)
+    np.save(os.path.join(freq_map_dir, f"{start_index}.npy"), freq_map)
 
     # write to "minutiae_locations/.txt" as x, y, type per line
     minutiae_file = os.path.join(minutiae_dir, f"{start_index}.txt")
@@ -267,23 +288,18 @@ def generate_fingerprint(
 from tqdm import tqdm
 
 for i in tqdm(range(start_index, to_generate)):
-    if not os.path.exists("data/continuous_images"):
-        os.makedirs("data/continuous_images")
-
-    if not os.path.exists("data/spiral_images"):
-        os.makedirs("data/spiral_images")
-
-    if not os.path.exists("data/minutiae_locations"):
-        os.makedirs("data/minutiae_locations")
-
-    if not os.path.exists(f"data/orientation_maps/"):
-        os.makedirs(f"data/orientation_maps/")
+    continuous_img_dir = "data_v2/cont_images"
+    full_img_dir = "data_v2/full_images"
+    minutiae_dir = "data_v2/minutiae_locations"
+    orientation_map_dir = "data_v2/orientation_maps"
+    freq_map_dir = "data_v2/freq_maps"
 
     generate_fingerprint(
-        continous_images_dir="data/continuous_images",
-        spiral_images_dir="data/spiral_images",
-        minutiae_dir="data/minutiae_locations",
-        orientation_map_dir="data/orientation_maps",
+        continous_images_dir=continuous_img_dir,
+        spiral_images_dir=full_img_dir,
+        minutiae_dir=minutiae_dir,
+        orientation_map_dir=orientation_map_dir,
+        freq_map_dir=freq_map_dir,
         height=256,
         width=256,
     )
