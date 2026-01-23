@@ -1,3 +1,6 @@
+from swin_unet_model import Config, FingerprintSwinUnet
+import torch
+
 import torch
 import torch.nn as nn
 
@@ -128,11 +131,12 @@ def train(
                 "optimizer": optimizer.state_dict(),
                 "lr_sched": scheduler.state_dict() if scheduler else None,
             }
-            torch.save(checkpoint, "checkpoint.pth")
+            torch.save(checkpoint, "swin_checkpoint.pth")
 
 
 if __name__ == "__main__":
-    cfg = TrainConfig(epochs=1000)
+    cfg = TrainConfig(epochs=1000, lr=1e-7)
+    config = Config()
 
     # original_images_dir = "./data_single/full"
     # target_images_dir = "./data_single/continuous"
@@ -181,7 +185,7 @@ if __name__ == "__main__":
         full_paths=orig_paths[train_split:],
     )
 
-    model = FingerprintUNet(in_channels=3, out_channels=2)
+    model = FingerprintSwinUnet(config, img_size=256, num_classes=2)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 
@@ -216,6 +220,6 @@ if __name__ == "__main__":
         optimizer=optimizer,
         scheduler=scheduler,
         save_model=True,
-        load_best=True,
-        load_path="checkpoints/fingerprint_unet_best_500.pth",
+        load_best=False,
+        load_path="checkpoints/swin_checkpoint.pth",
     )

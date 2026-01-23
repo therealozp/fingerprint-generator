@@ -32,11 +32,11 @@ class FingerprintLoss(nn.Module):
         return 0.0
 
     def forward(self, pred, spiral_phasor, target_cont, target_full):
-        sin_c = pred[:, 0, :, :]
-        cos_c = pred[:, 1, :, :]
+        sin_c = pred[:, 0:1, :, :]
+        cos_c = pred[:, 1:2, :, :]
 
-        sin_s = spiral_phasor[:, 0, :, :]
-        cos_s = spiral_phasor[:, 1, :, :]
+        sin_s = spiral_phasor[:, 0:1, :, :]
+        cos_s = spiral_phasor[:, 1:2, :, :]
 
         pred_cont = cos_c
         pred_full = cos_c * cos_s - sin_c * sin_s
