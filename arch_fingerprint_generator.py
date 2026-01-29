@@ -10,8 +10,8 @@ from collections import deque
 from PIL import Image
 import os
 
-start_index = 837
-to_generate = 2000
+start_index = 0
+to_generate = 7500
 
 
 def select_and_merge_density_maps(width, height):
@@ -221,7 +221,7 @@ def generate_fingerprint(
     freq_map_jitter = (
         (freq_map - np.min(freq_map)) / (np.max(freq_map) - np.min(freq_map)) * 0.05
     )
-    base_freq = np.random.uniform(0.057, 0.113)
+    base_freq = np.random.uniform(0.057, 0.153)
     freq_map = base_freq + freq_map_jitter
 
     phase = reconstruct_continuous_phase(

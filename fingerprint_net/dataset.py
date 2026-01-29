@@ -105,3 +105,85 @@ class FingerprintOrientationDataset(Dataset):
             "target_full": full_img,  # Shape: (1, H, W)
             "spiral_phasor": spiral_phasor,  # (2, H, W)
         }
+
+
+class OrientationFrequencyDataset(Dataset):
+    def __init__(
+        self,
+        orientation_paths,
+        frequency_paths,
+        minutiae_paths,
+        continuous_paths,
+        full_paths,
+        img_size=(256, 256),
+    ):
+        self.orientation_paths = orientation_paths
+        self.frequency_paths = frequency_paths
+        self.minutiae_paths = minutiae_paths
+        self.continuous_paths = continuous_paths
+        self.full_paths = full_paths
+        self.img_size = img_size
+
+    def __len__(self):
+        return len(self.orientation_paths)
+
+    def _get_spiral_phase(self, minutiae_list, h, w):
+        spiral_phase = np.zeros((h, w), dtype=np.float32)
+        Y, X = np.mgrid[:h, :w]
+        for xx, yy, polarity in minutiae_list:
+            spiral_phase += polarity * np.arctan2(Y - yy, X - xx)
+
+        return torch.from_numpy(spiral_phase).unsqueeze(0)  # (1, H, W)
+
+    def __getitem__(self, idx):
+        orientation = np.load(self.orientation_paths[idx]).astype(np.float32)
+        freq = np.load(self.frequency_paths[idx]).astype(np.float32)
+
+        ori_tensor = torch.from_numpy(orientation)
+        freq_tensor = torch.from_numpy(freq).unsqueeze(0)  # (1, H, W)
+
+        cos2theta = torch.cos(2 * ori_tensor).unsqueeze(0)  # (1, H, W)
+        sin2theta = torch.sin(2 * ori_tensor).unsqueeze(0)  # (1, H, W)
+
+        min_path = self.minutiae_paths[idx]
+        minutiae_points = []
+        if os.path.exists(min_path):
+            # Parse "x,y,type"
+            with open(min_path, "r") as f:
+                for line in f:
+                    parts = line.strip().split(",")
+                    if len(parts) >= 2:
+                        # Assuming format is x, y, type
+                        minutiae_points.append(
+                            (float(parts[0]), float(parts[1]), int(parts[2]))
+                        )
+
+        # Generate Gaussian Heatmap
+        h, w = ori_tensor.shape
+
+        # Helper to load and normalize image to [-1, 1]
+        def load_image(path):
+            img = Image.open(path).convert("L")  # Grayscale
+            img = img.resize((w, h))  # Ensure matches orientation dimensions
+            img_tensor = torch.from_numpy(np.array(img)).float()
+            img_tensor = (img_tensor / 127.5) - 1.0  # [0, 255] -> [-1, 1]
+            return img_tensor.unsqueeze(0)
+
+        cont_path = self.continuous_paths[idx]
+        full_path = self.full_paths[idx]
+
+        continuous_img = load_image(cont_path)
+        full_img = load_image(full_path)
+        spiral_phase = self._get_spiral_phase(minutiae_points, h, w)
+
+        spiral_phasor_cos = torch.cos(spiral_phase)
+        spiral_phasor_sin = torch.sin(spiral_phase)
+        spiral_phasor = torch.cat([spiral_phasor_sin, spiral_phasor_cos], dim=0)
+        inputs = torch.cat([sin2theta, cos2theta, freq_tensor], dim=0)
+
+        return {
+            "inputs": inputs,  # Shape: (3, H, W)
+            "target_continuous": continuous_img,  # Shape: (1, H, W)
+            "target_full": full_img,  # Shape: (1, H, W)
+            "spiral_phasor": spiral_phasor,  # (2, H, W)
+        }
