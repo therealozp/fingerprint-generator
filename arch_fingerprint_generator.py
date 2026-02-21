@@ -36,18 +36,13 @@ def select_and_merge_density_maps(width, height):
 
 
 def reconstruct_continuous_phase(
-    unwrapped_orientation, mask, block_size=8, freq_map=None, f=0.12
+    unwrapped_orientation, mask, block_size=8, freq_map=None, f=0.12, initial_phase=0.0
 ):
-    # 1. Compute the Gradient Field G (Eq 13) using Complex Exponentials
-    # G(m,n) = 2 * pi * f * exp(i * (O_u + pi/2))
-    # This replaces manual sin/cos calculations.
     magnitude = 2 * np.pi * freq_map if freq_map is not None else f * 2 * np.pi
 
-    # The orientation is shifted by pi/2 to be normal to the ridges
     complex_orientation = np.exp(1j * (unwrapped_orientation + np.pi / 2))
     G_complex = magnitude * complex_orientation
 
-    # [cite_start]Extract relative real (x) and imaginary (y) components [cite: 18]
     G_cx = np.real(G_complex)
     G_cy = np.imag(G_complex)
 
@@ -56,7 +51,6 @@ def reconstruct_continuous_phase(
     P = np.zeros((rows, cols))
     visited = np.zeros((rows, cols), dtype=bool)
 
-    # [cite_start]Find start node (first valid foreground block) [cite: 35]
     start_node = None
     for r in range(rows):
         for c in range(cols):
@@ -72,9 +66,8 @@ def reconstruct_continuous_phase(
     # BFS Initialization
     queue = deque([start_node])
     visited[start_node] = True
-    P[start_node] = 0.0  # Assumption: P(start) = 0 [cite: 35]
+    P[start_node] = initial_phase  # Assumption: P(start) = 0 [cite: 35]
 
-    # Directions: (d_row, d_col) -> (top, bottom, left, right)
     neighbors = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
     while queue:
@@ -87,12 +80,6 @@ def reconstruct_continuous_phase(
             # Boundary and Mask Check
             if 0 <= nr < rows and 0 <= nc < cols and mask[nr, nc]:
                 if not visited[nr, nc]:
-                    # 3. Estimate Phase Offset P for the neighbor (Eq 15)
-                    # We compute the offset required to make the phase continuous
-                    # at the shared border pixels.
-
-                    # Determine global pixel coordinates of the shared border
-                    # r, c is "Old/Reconstructed", nr, nc is "New/Target"
                     if dr == -1:  # Neighbor is Above
                         # Shared border: y = r * block_size
                         border_y = np.full(block_size, r * block_size)
@@ -150,6 +137,11 @@ def reconstruct_continuous_phase(
     G_cx_img = np.kron(G_cx, np.ones((block_size, block_size)))
     G_cy_img = np.kron(G_cy, np.ones((block_size, block_size)))
     P_img = np.kron(P, np.ones((block_size, block_size)))
+
+    plt.imshow(P_img, cmap="gray")
+    plt.title("Phase Offset P (Upsampled)")
+    plt.colorbar()
+    plt.show()
 
     # Calculate Phase
     continuous_phase = G_cx_img * x_grid + G_cy_img * y_grid + P_img
@@ -287,19 +279,20 @@ def generate_fingerprint(
 
 from tqdm import tqdm
 
-for i in tqdm(range(start_index, to_generate)):
-    continuous_img_dir = "data_v2/cont_images"
-    full_img_dir = "data_v2/full_images"
-    minutiae_dir = "data_v2/minutiae_locations"
-    orientation_map_dir = "data_v2/orientation_maps"
-    freq_map_dir = "data_v2/freq_maps"
+if __name__ == "__main__":
+    for i in tqdm(range(start_index, to_generate)):
+        continuous_img_dir = "data_v2/cont_images"
+        full_img_dir = "data_v2/full_images"
+        minutiae_dir = "data_v2/minutiae_locations"
+        orientation_map_dir = "data_v2/orientation_maps"
+        freq_map_dir = "data_v2/freq_maps"
 
-    generate_fingerprint(
-        continous_images_dir=continuous_img_dir,
-        spiral_images_dir=full_img_dir,
-        minutiae_dir=minutiae_dir,
-        orientation_map_dir=orientation_map_dir,
-        freq_map_dir=freq_map_dir,
-        height=256,
-        width=256,
-    )
+        generate_fingerprint(
+            continous_images_dir=continuous_img_dir,
+            spiral_images_dir=full_img_dir,
+            minutiae_dir=minutiae_dir,
+            orientation_map_dir=orientation_map_dir,
+            freq_map_dir=freq_map_dir,
+            height=256,
+            width=256,
+        )

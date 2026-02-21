@@ -15,7 +15,7 @@ import os
 
 @dataclass
 class TrainConfig:
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    device: str = "cuda:0" if torch.cuda.is_available() else "cpu"
     lr: float = 5e-4
     batch_size: int = 8
     epochs: int = 20
@@ -120,6 +120,7 @@ def train(
 
         avg_val_loss = val_loss / max(1, len(val_loader))
         print("validation loss:", avg_val_loss)
+        print("best validation loss:", lowest_validation_loss)
         if scheduler is not None:
             scheduler.step(avg_val_loss)
 
@@ -136,13 +137,13 @@ def train(
 
 
 if __name__ == "__main__":
-    cfg = TrainConfig(epochs=1000)
+    cfg = TrainConfig(epochs=5000, batch_size=16)
 
-    original_images_dir = "./data_v2/full_images"
-    target_images_dir = "./data_v2/cont_images"
-    minutiae_dir = "./data_v2/minutiae_locations"
-    orientation_maps_dir = "./data_v2/orientation_maps"
-    freq_maps_dir = "./data_v2/freq_maps"
+    original_images_dir = "/green/data/data_v2/full_images"
+    target_images_dir = "/green/data/data_v2/cont_images"
+    minutiae_dir = "/green/data/data_v2/minutiae_locations"
+    orientation_maps_dir = "/green/data/data_v2/orientation_maps"
+    freq_maps_dir = "/green/data/data_v2/freq_maps"
 
     orig_paths = []
     cont_paths = []
@@ -211,8 +212,8 @@ if __name__ == "__main__":
     scheduler = ReduceLROnPlateau(
         optimizer,
         mode="min",
-        factor=0.1,
-        patience=50,
+        factor=0.5,
+        patience=100,
     )
 
     train(
@@ -223,6 +224,6 @@ if __name__ == "__main__":
         optimizer=optimizer,
         scheduler=scheduler,
         save_model=True,
-        load_best=True,
+        load_best=False,
         load_path="checkpoints/checkpoint_2.pth",
     )

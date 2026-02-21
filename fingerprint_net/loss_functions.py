@@ -10,6 +10,7 @@ class FingerprintLoss(nn.Module):
         self.lambda_norm = lambda_norm
         self.lambda_grad = lambda_grad
 
+    # implement sobel losses instead of this kind of loss
     def multiscale_mse_loss(self, pred, target, scales=[1, 2, 4, 8, 16]):
         loss = 0
         for scale in scales:
@@ -21,6 +22,9 @@ class FingerprintLoss(nn.Module):
                 t_down = pool_layer(target)
                 loss += self.mse(p_down, t_down)
         return loss
+
+    def mse_loss(self, pred, target):
+        return self.mse(pred, target)
 
     def gradient_loss(self, pred_sin, pred_cos, orientation_field):
         # orientation_field is in radians (0 to pi)
@@ -41,14 +45,9 @@ class FingerprintLoss(nn.Module):
         pred_cont = cos_c
         pred_full = cos_c * cos_s - sin_c * sin_s
 
-        loss_cont = self.multiscale_mse_loss(pred_cont, target_cont)
-        loss_full = self.multiscale_mse_loss(pred_full, target_full)
+        loss_cont = self.mse_loss(pred_cont, target_cont)
+        loss_full = self.mse_loss(pred_full, target_full)
 
-        norm_map = cos_c**2 + sin_c**2
-        loss_norm = self.mse(norm_map, torch.ones_like(norm_map))
+        total_loss = (self.lambda_img * (loss_cont + loss_full))
 
-        total_loss = (self.lambda_img * (loss_cont + loss_full)) + (
-            self.lambda_norm * loss_norm
-        )
-
-        return total_loss, loss_cont, loss_full, loss_norm
+        return total_loss, loss_cont, loss_full

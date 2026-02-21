@@ -1,4 +1,5 @@
 import os
+from random import random
 import torch
 import numpy as np
 from torch.utils.data import Dataset
@@ -14,6 +15,7 @@ class FingerprintOrientationDataset(Dataset):
         continuous_paths,
         full_paths,
         img_size=(256, 256),
+        crop_size=None,
     ):
         self.orientation_paths = orientation_paths
         self.minutiae_paths = minutiae_paths
@@ -99,6 +101,16 @@ class FingerprintOrientationDataset(Dataset):
         spiral_phasor = torch.cat([spiral_phasor_sin, spiral_phasor_cos], dim=0)
         inputs = torch.cat([sin2theta, cos2theta, minutiae_map], dim=0)
 
+        if self.crop_size is not None and self.crop_size < h and self.crop_size < w:
+            top = torch.randint(0, h - self.crop_size)
+            left = torch.randint(0, w - self.crop_size)
+
+            # Apply slice [..., top:bottom, left:right] to handle (C, H, W)
+            inputs = inputs[:, top : top + self.crop_size, left : left + self.crop_size]
+            continuous_img = continuous_img[:, top : top + self.crop_size, left : left + self.crop_size]
+            full_img = full_img[:, top : top + self.crop_size, left : left + self.crop_size]
+            spiral_phasor = spiral_phasor[:, top : top + self.crop_size, left : left + self.crop_size]
+
         return {
             "inputs": inputs,  # Shape: (3, H, W)
             "target_continuous": continuous_img,  # Shape: (1, H, W)
@@ -116,6 +128,7 @@ class OrientationFrequencyDataset(Dataset):
         continuous_paths,
         full_paths,
         img_size=(256, 256),
+        crop_size=None,
     ):
         self.orientation_paths = orientation_paths
         self.frequency_paths = frequency_paths
@@ -123,6 +136,7 @@ class OrientationFrequencyDataset(Dataset):
         self.continuous_paths = continuous_paths
         self.full_paths = full_paths
         self.img_size = img_size
+        self.crop_size = crop_size
 
     def __len__(self):
         return len(self.orientation_paths)
@@ -180,6 +194,16 @@ class OrientationFrequencyDataset(Dataset):
         spiral_phasor_sin = torch.sin(spiral_phase)
         spiral_phasor = torch.cat([spiral_phasor_sin, spiral_phasor_cos], dim=0)
         inputs = torch.cat([sin2theta, cos2theta, freq_tensor], dim=0)
+
+        if self.crop_size is not None and self.crop_size < h and self.crop_size < w:
+            top = torch.randint(0, h - self.crop_size, (1,)).item()
+            left = torch.randint(0, w - self.crop_size, (1,)).item()
+
+            # Apply slice to all
+            inputs = inputs[:, top : top + self.crop_size, left : left + self.crop_size]
+            continuous_img = continuous_img[:, top : top + self.crop_size, left : left + self.crop_size]
+            full_img = full_img[:, top : top + self.crop_size, left : left + self.crop_size]
+            spiral_phasor = spiral_phasor[:, top : top + self.crop_size, left : left + self.crop_size]
 
         return {
             "inputs": inputs,  # Shape: (3, H, W)
