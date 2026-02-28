@@ -284,6 +284,8 @@ from tqdm import tqdm
 if __name__ == "__main__":
     base_path = "/green/data/data_v3"
 
+    IMAGE_DIMS = 299
+
     for i in tqdm(range(start_index, to_generate)):
         continuous_img_dir = os.path.join(base_path, "cont_images")
         full_img_dir = os.path.join(base_path, "full_images")
@@ -297,6 +299,6 @@ if __name__ == "__main__":
             minutiae_dir=minutiae_dir,
             orientation_map_dir=orientation_map_dir,
             freq_map_dir=freq_map_dir,
-            height=299,
-            width=299,
+            height=IMAGE_DIMS,
+            width=IMAGE_DIMS,
         )
