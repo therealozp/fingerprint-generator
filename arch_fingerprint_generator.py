@@ -297,6 +297,6 @@ if __name__ == "__main__":
             minutiae_dir=minutiae_dir,
             orientation_map_dir=orientation_map_dir,
             freq_map_dir=freq_map_dir,
-            height=256,
-            width=256,
+            height=299,
+            width=299,
         )
