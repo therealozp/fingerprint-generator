@@ -113,8 +113,6 @@ def reconstruct_continuous_phase(
                     # This ensures Psi_new = Psi_old at the border.
                     estimates = psi_from_old - psi_from_new_grad
 
-                    # [cite_start]4. Complex Averaging of Offsets [cite: 46, 47]
-                    # "Phase values cannot be averaged directly... first converted to complex"
                     complex_estimates = np.exp(1j * estimates)
                     complex_mean = np.mean(complex_estimates)
 
@@ -227,11 +225,13 @@ def generate_fingerprint(
     # phase += freq_map
 
     # save_image
-    plt.imsave(
-        os.path.join(continous_images_dir, f"{start_index}.png"),
-        np.cos(phase),
-        cmap="gray",
-    )
+    # plt.imsave(
+    #     os.path.join(continous_images_dir, f"{start_index}.png"),
+    #     np.cos(phase),
+    #     cmap="gray",
+    # )
+
+    np.save(os.path.join(continous_images_dir, f"{start_index}.npy"), np.cos(phase))
 
     def add_spiral_phase(psi, points, polarities):
         # points: list of (y,x); polarities: +1 for termination, -1 for bifurcation (convention)
@@ -261,9 +261,11 @@ def generate_fingerprint(
         phase, spiral_phase_coords, spiral_phase_polarities
     )
     spiral_image = np.cos(phase_with_spirals)
-    plt.imsave(
-        os.path.join(spiral_images_dir, f"{start_index}.png"), spiral_image, cmap="gray"
-    )
+    # plt.imsave(
+    # os.path.join(spiral_images_dir, f"{start_index}.png"), spiral_image, cmap="gray"
+    # )
+
+    np.save(os.path.join(spiral_images_dir, f"{start_index}.npy"), spiral_image)
     np.save(os.path.join(orientation_map_dir, f"{start_index}.npy"), orientation_map)
     np.save(os.path.join(freq_map_dir, f"{start_index}.npy"), freq_map)
 
@@ -280,12 +282,14 @@ def generate_fingerprint(
 from tqdm import tqdm
 
 if __name__ == "__main__":
+    base_path = "/green/data/data_v3"
+
     for i in tqdm(range(start_index, to_generate)):
-        continuous_img_dir = "data_v2/cont_images"
-        full_img_dir = "data_v2/full_images"
-        minutiae_dir = "data_v2/minutiae_locations"
-        orientation_map_dir = "data_v2/orientation_maps"
-        freq_map_dir = "data_v2/freq_maps"
+        continuous_img_dir = os.path.join(base_path, "cont_images")
+        full_img_dir = os.path.join(base_path, "full_images")
+        minutiae_dir = os.path.join(base_path, "minutiae_locations")
+        orientation_map_dir = os.path.join(base_path, "orientation_maps")
+        freq_map_dir = os.path.join(base_path, "freq_maps")
 
         generate_fingerprint(
             continous_images_dir=continuous_img_dir,
