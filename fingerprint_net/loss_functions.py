@@ -7,21 +7,7 @@ class FingerprintLoss(nn.Module):
         super().__init__()
         self.mse = nn.MSELoss()
         self.lambda_img = lambda_img
-        self.lambda_norm = lambda_norm
         self.lambda_grad = lambda_grad
-
-    # implement sobel losses instead of this kind of loss
-    def multiscale_mse_loss(self, pred, target, scales=[1, 2, 4, 8, 16]):
-        loss = 0
-        for scale in scales:
-            if scale == 1:
-                loss += self.mse(pred, target)
-            else:
-                pool_layer = nn.AvgPool2d(kernel_size=scale, stride=scale)
-                p_down = pool_layer(pred)
-                t_down = pool_layer(target)
-                loss += self.mse(p_down, t_down)
-        return loss
 
     def mse_loss(self, pred, target):
         return self.mse(pred, target)
@@ -48,6 +34,6 @@ class FingerprintLoss(nn.Module):
         loss_cont = self.mse_loss(pred_cont, target_cont)
         loss_full = self.mse_loss(pred_full, target_full)
 
-        total_loss = (self.lambda_img * (loss_cont + loss_full))
+        total_loss = self.lambda_img * (loss_cont + loss_full)
 
         return total_loss, loss_cont, loss_full

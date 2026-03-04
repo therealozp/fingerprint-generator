@@ -12,6 +12,31 @@ import os
 
 start_index = 0
 to_generate = 7500
+# base_path = "/green/data/data_v3"
+base_path = "data_v3"
+
+IMAGE_DIMS = 256
+cos_cont_dir = os.path.join(base_path, "cos_cont")
+sin_cont_dir = os.path.join(base_path, "sin_cont")
+
+cos_full_dir = os.path.join(base_path, "cos_full")
+sin_full_dir = os.path.join(base_path, "sin_full")
+
+minutiae_dir = os.path.join(base_path, "minutiae_locations")
+orientation_map_dir = os.path.join(base_path, "orientation_maps")
+freq_map_dir = os.path.join(base_path, "freq_maps")
+
+for dir_path in [
+    cos_cont_dir,
+    sin_cont_dir,
+    cos_full_dir,
+    sin_full_dir,
+    minutiae_dir,
+    orientation_map_dir,
+    freq_map_dir,
+]:
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
 
 
 def select_and_merge_density_maps(width, height):
@@ -136,10 +161,10 @@ def reconstruct_continuous_phase(
     G_cy_img = np.kron(G_cy, np.ones((block_size, block_size)))
     P_img = np.kron(P, np.ones((block_size, block_size)))
 
-    plt.imshow(P_img, cmap="gray")
-    plt.title("Phase Offset P (Upsampled)")
-    plt.colorbar()
-    plt.show()
+    # plt.imshow(P_img, cmap="gray")
+    # plt.title("Phase Offset P (Upsampled)")
+    # plt.colorbar()
+    # plt.show()
 
     # Calculate Phase
     continuous_phase = G_cx_img * x_grid + G_cy_img * y_grid + P_img
@@ -152,27 +177,11 @@ def reconstruct_continuous_phase(
 
 
 def generate_fingerprint(
-    continous_images_dir,
-    spiral_images_dir,
-    minutiae_dir,
-    orientation_map_dir,
-    freq_map_dir,
     height,
     width,
 ):
     global start_index
     singularity_type = 1
-
-    if not os.path.exists(continous_images_dir):
-        os.makedirs(continous_images_dir)
-    if not os.path.exists(spiral_images_dir):
-        os.makedirs(spiral_images_dir)
-    if not os.path.exists(minutiae_dir):
-        os.makedirs(minutiae_dir)
-    if not os.path.exists(orientation_map_dir):
-        os.makedirs(orientation_map_dir)
-    if not os.path.exists(freq_map_dir):
-        os.makedirs(freq_map_dir)
 
     core_positions, delta_positions, arch_fact1, arch_fact2, k_arch = (
         init_para_canonical(H=height, W=width, singularity_type=singularity_type)
@@ -231,7 +240,8 @@ def generate_fingerprint(
     #     cmap="gray",
     # )
 
-    np.save(os.path.join(continous_images_dir, f"{start_index}.npy"), np.cos(phase))
+    np.save(os.path.join(cos_cont_dir, f"{start_index}.npy"), np.cos(phase))
+    np.save(os.path.join(sin_cont_dir, f"{start_index}.npy"), np.sin(phase))
 
     def add_spiral_phase(psi, points, polarities):
         # points: list of (y,x); polarities: +1 for termination, -1 for bifurcation (convention)
@@ -260,12 +270,17 @@ def generate_fingerprint(
     phase_with_spirals = add_spiral_phase(
         phase, spiral_phase_coords, spiral_phase_polarities
     )
-    spiral_image = np.cos(phase_with_spirals)
     # plt.imsave(
     # os.path.join(spiral_images_dir, f"{start_index}.png"), spiral_image, cmap="gray"
     # )
 
-    np.save(os.path.join(spiral_images_dir, f"{start_index}.npy"), spiral_image)
+    np.save(
+        os.path.join(cos_full_dir, f"{start_index}.npy"), np.cos(phase_with_spirals)
+    )
+    np.save(
+        os.path.join(sin_full_dir, f"{start_index}.npy"), np.sin(phase_with_spirals)
+    )
+
     np.save(os.path.join(orientation_map_dir, f"{start_index}.npy"), orientation_map)
     np.save(os.path.join(freq_map_dir, f"{start_index}.npy"), freq_map)
 
@@ -282,23 +297,8 @@ def generate_fingerprint(
 from tqdm import tqdm
 
 if __name__ == "__main__":
-    base_path = "/green/data/data_v3"
-
-    IMAGE_DIMS = 299
-
     for i in tqdm(range(start_index, to_generate)):
-        continuous_img_dir = os.path.join(base_path, "cont_images")
-        full_img_dir = os.path.join(base_path, "full_images")
-        minutiae_dir = os.path.join(base_path, "minutiae_locations")
-        orientation_map_dir = os.path.join(base_path, "orientation_maps")
-        freq_map_dir = os.path.join(base_path, "freq_maps")
-
         generate_fingerprint(
-            continous_images_dir=continuous_img_dir,
-            spiral_images_dir=full_img_dir,
-            minutiae_dir=minutiae_dir,
-            orientation_map_dir=orientation_map_dir,
-            freq_map_dir=freq_map_dir,
             height=IMAGE_DIMS,
             width=IMAGE_DIMS,
         )
