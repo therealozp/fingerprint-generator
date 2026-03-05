@@ -34,7 +34,7 @@ def train(
     load_best=False,
     load_path=None,
 ):
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+    opt = optimizer
     if load_best:
         assert load_path, "Specify best model paths in `load_path`."
         print("Loading best model weights for training...")
@@ -52,10 +52,11 @@ def train(
 
     criterion = FingerprintLoss()
 
-    model.train()
     opt.zero_grad(set_to_none=True)
 
     for epoch in range(cfg.epochs):
+        model.train()
+
         running = 0.0
         loss_from_continuous_phase = 0.0
         loss_from_full_phase = 0.0
@@ -97,7 +98,7 @@ def train(
 
         # eval step
         model.eval()
-        val_loss = 0.0
+        running_val_loss = 0.0
         with torch.no_grad():
             for step, input in enumerate(
                 tqdm(val_loader, desc=f"Validation {epoch+1}/{cfg.epochs}")
@@ -109,23 +110,24 @@ def train(
 
                 pred = model(inputs)
 
-                loss, _, _, _ = criterion(
+                validation_loss, _, _, _ = criterion(
                     pred=pred,
                     spiral_phasor=spiral_phasor,
                     target_cont=target_c,
                     target_full=target_f,
                 )
 
-                val_loss += loss.item()
+                running_val_loss += validation_loss.item()
 
-        avg_val_loss = val_loss / max(1, len(val_loader))
+        avg_val_loss = running_val_loss / max(1, len(val_loader))
         print("validation loss:", avg_val_loss)
         print("best validation loss:", lowest_validation_loss)
+
         if scheduler is not None:
             scheduler.step(avg_val_loss)
 
-        if save_model and val_loss < lowest_validation_loss:
-            lowest_validation_loss = val_loss
+        if save_model and avg_val_loss < lowest_validation_loss:
+            lowest_validation_loss = avg_val_loss
             print("saving best model with validation loss:", lowest_validation_loss)
             checkpoint = {
                 "epoch": epoch,
@@ -137,7 +139,7 @@ def train(
 
 
 if __name__ == "__main__":
-    cfg = TrainConfig(epochs=5000, batch_size=16)
+    cfg = TrainConfig(epochs=5000, batch_size=16, lr=1e-3)
 
     original_images_dir = "/green/data/data_v2/full_images"
     target_images_dir = "/green/data/data_v2/cont_images"
@@ -171,7 +173,7 @@ if __name__ == "__main__":
     orientation_map_paths.sort()
     frequency_map_paths.sort()
 
-    train_split = int(0.85 * len(orig_paths))
+    train_split = int(0.8 * len(orig_paths))
 
     train_dataset = OrientationFrequencyDataset(
         orientation_paths=orientation_map_paths[:train_split],

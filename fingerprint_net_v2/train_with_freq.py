@@ -52,10 +52,10 @@ def train(
 
     criterion = FingerprintLossv2().to(cfg.device)
 
-    model.train()
     opt.zero_grad(set_to_none=True)
 
     for epoch in range(cfg.epochs):
+        model.train()
         running = 0.0
         loss_items = {
             "mse_cont": 0.0,
@@ -99,56 +99,60 @@ def train(
         loss_str = " | ".join(f"{key} = {val:.6f}" for key, val in avg_items.items())
         print(f"epoch {epoch+1:03d}/{cfg.epochs} | total loss = {avg:.6f} | {loss_str}")
 
-        # eval step
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for step, inp in enumerate(
-                tqdm(val_loader, desc=f"Validation {epoch+1}/{cfg.epochs}")
-            ):
-                optimizer.zero_grad()
-                inputs = inp["inputs"].to(cfg.device)  # (B, 3, H, W)
+        checkpoint = {
+            "epoch": epoch,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "lr_sched": scheduler.state_dict() if scheduler else None,
+        }
+        torch.save(checkpoint, "checkpoints/ckpt.pth")
 
-                pred = model(inputs)
+        # # eval step
+        # model.eval()
+        # val_loss = 0.0
+        # with torch.no_grad():
+        #     for step, inp in enumerate(
+        #         tqdm(val_loader, desc=f"Validation {epoch+1}/{cfg.epochs}")
+        #     ):
+        #         inputs = inp["inputs"].to(cfg.device)  # (B, 3, H, W)
 
-                # Calculate Loss
-                loss, loss_object = criterion(
-                    pred=pred,
-                    spiral_phasor=inp["spiral_phasor"].to(cfg.device),
-                    cos_cont=inp["cos_cont"].to(cfg.device),
-                    cos_full=inp["cos_full"].to(cfg.device),
-                    sin_cont=inp["sin_cont"].to(cfg.device),
-                    sin_full=inp["sin_full"].to(cfg.device),
-                )
+        #         pred = model(inputs)
 
-                loss.backward()
-                optimizer.step()
+        #         # Calculate Loss
+        #         loss, loss_object = criterion(
+        #             pred=pred,
+        #             spiral_phasor=inp["spiral_phasor"].to(cfg.device),
+        #             cos_cont=inp["cos_cont"].to(cfg.device),
+        #             cos_full=inp["cos_full"].to(cfg.device),
+        #             sin_cont=inp["sin_cont"].to(cfg.device),
+        #             sin_full=inp["sin_full"].to(cfg.device),
+        #         )
 
-                running += loss.item()
-                val_loss += loss.item()
+        #         running += loss.item()
+        #         val_loss += loss.item()
 
-        avg_val_loss = val_loss / max(1, len(val_loader))
-        print("validation loss:", avg_val_loss)
-        print("best validation loss:", lowest_validation_loss)
-        if scheduler is not None:
-            scheduler.step(avg_val_loss)
+        # avg_val_loss = val_loss / max(1, len(val_loader))
+        # print("validation loss:", avg_val_loss)
+        # print("best validation loss:", lowest_validation_loss)
+        # if scheduler is not None:
+        #     scheduler.step(avg_val_loss)
 
-        if save_model and val_loss < lowest_validation_loss:
-            lowest_validation_loss = val_loss
-            print("saving best model with validation loss:", lowest_validation_loss)
-            checkpoint = {
-                "epoch": epoch,
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "lr_sched": scheduler.state_dict() if scheduler else None,
-            }
-            torch.save(checkpoint, "checkpoints/ckpt.pth")
+        # if save_model and val_loss < lowest_validation_loss:
+        #     lowest_validation_loss = val_loss
+        #     print("saving best model with validation loss:", lowest_validation_loss)
+        #     checkpoint = {
+        #         "epoch": epoch,
+        #         "model": model.state_dict(),
+        #         "optimizer": optimizer.state_dict(),
+        #         "lr_sched": scheduler.state_dict() if scheduler else None,
+        #     }
+        #     torch.save(checkpoint, "checkpoints/ckpt.pth")
 
 
 if __name__ == "__main__":
-    cfg = TrainConfig(epochs=5000, batch_size=16)
+    cfg = TrainConfig(epochs=5000, batch_size=1, lr=1e-3)
 
-    base_dir = "data_v3"
+    base_dir = "data_v3_single"
 
     orientation_dir = "orientation_maps"
     minutiae_dir = "minutiae_locations"
@@ -196,7 +200,7 @@ if __name__ == "__main__":
     sin_cont_paths.sort()
     sin_full_paths.sort()
 
-    train_split = int(0.85 * len(orientation_paths))
+    train_split = int(1 * len(orientation_paths))
 
     train_dataset = FingerprintOrientationDataset(
         orientation_paths[:train_split],
@@ -251,7 +255,7 @@ if __name__ == "__main__":
         val_loader=val_loader,
         cfg=cfg,
         optimizer=optimizer,
-        scheduler=scheduler,
+        scheduler=False,
         save_model=True,
         load_best=False,
         load_path="checkpoints/checkpoint_2.pth",
