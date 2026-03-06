@@ -10,7 +10,7 @@ from collections import deque
 from PIL import Image
 import os
 
-start_index = 0
+start_index = 2308
 to_generate = 7500
 # base_path = "/green/data/data_v3"
 base_path = "data_v3"

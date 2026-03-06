@@ -98,7 +98,7 @@ class FingerprintOrientationDataset(Dataset):
         spiral_phasor_cos = torch.cos(spiral_phase)
         spiral_phasor_sin = torch.sin(spiral_phase)
         spiral_phasor = torch.cat([spiral_phasor_sin, spiral_phasor_cos], dim=0)
-        inputs = torch.cat([sin2theta, cos2theta, minutiae_map], dim=0)
+        inputs = torch.cat([sin2theta, cos2theta, minutiae_map, freq_tensor], dim=0)
 
         return {
             "inputs": inputs,  # Shape: (3, H, W)

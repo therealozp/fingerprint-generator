@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from model import FingerprintUNet
 from loss_functions import FingerprintLossv2
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from dataset import FingerprintOrientationDataset
 
 from dataclasses import dataclass
@@ -99,58 +99,51 @@ def train(
         loss_str = " | ".join(f"{key} = {val:.6f}" for key, val in avg_items.items())
         print(f"epoch {epoch+1:03d}/{cfg.epochs} | total loss = {avg:.6f} | {loss_str}")
 
-        checkpoint = {
-            "epoch": epoch,
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "lr_sched": scheduler.state_dict() if scheduler else None,
-        }
-        torch.save(checkpoint, "checkpoints/ckpt_2.pth")
+        # eval step
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for step, inp in enumerate(
+                tqdm(val_loader, desc=f"Validation {epoch+1}/{cfg.epochs}")
+            ):
+                inputs = inp["inputs"].to(cfg.device)  # (B, 3, H, W)
 
-        # # eval step
-        # model.eval()
-        # val_loss = 0.0
-        # with torch.no_grad():
-        #     for step, inp in enumerate(
-        #         tqdm(val_loader, desc=f"Validation {epoch+1}/{cfg.epochs}")
-        #     ):
-        #         inputs = inp["inputs"].to(cfg.device)  # (B, 3, H, W)
+                pred = model(inputs)
 
-        #         pred = model(inputs)
+                # Calculate Loss
+                loss, loss_object = criterion(
+                    pred=pred,
+                    spiral_phasor=inp["spiral_phasor"].to(cfg.device),
+                    cos_cont=inp["cos_cont"].to(cfg.device),
+                    cos_full=inp["cos_full"].to(cfg.device),
+                    sin_cont=inp["sin_cont"].to(cfg.device),
+                    sin_full=inp["sin_full"].to(cfg.device),
+                )
 
-        #         # Calculate Loss
-        #         loss, loss_object = criterion(
-        #             pred=pred,
-        #             spiral_phasor=inp["spiral_phasor"].to(cfg.device),
-        #             cos_cont=inp["cos_cont"].to(cfg.device),
-        #             cos_full=inp["cos_full"].to(cfg.device),
-        #             sin_cont=inp["sin_cont"].to(cfg.device),
-        #             sin_full=inp["sin_full"].to(cfg.device),
-        #         )
+                running += loss.item()
+                val_loss += loss.item()
 
-        #         running += loss.item()
-        #         val_loss += loss.item()
+        avg_val_loss = val_loss / max(1, len(val_loader))
+        print("validation loss:", avg_val_loss)
+        print("best validation loss:", lowest_validation_loss)
 
-        # avg_val_loss = val_loss / max(1, len(val_loader))
-        # print("validation loss:", avg_val_loss)
-        # print("best validation loss:", lowest_validation_loss)
         # if scheduler is not None:
         #     scheduler.step(avg_val_loss)
 
-        # if save_model and val_loss < lowest_validation_loss:
-        #     lowest_validation_loss = val_loss
-        #     print("saving best model with validation loss:", lowest_validation_loss)
-        #     checkpoint = {
-        #         "epoch": epoch,
-        #         "model": model.state_dict(),
-        #         "optimizer": optimizer.state_dict(),
-        #         "lr_sched": scheduler.state_dict() if scheduler else None,
-        #     }
-        #     torch.save(checkpoint, "checkpoints/ckpt.pth")
+        if save_model and val_loss < lowest_validation_loss:
+            lowest_validation_loss = val_loss
+            print("saving best model with validation loss:", lowest_validation_loss)
+            checkpoint = {
+                "epoch": epoch,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                # "lr_sched": scheduler.state_dict() if scheduler else None,
+            }
+            torch.save(checkpoint, "checkpoints_exp/ckpt_full.pth")
 
 
 if __name__ == "__main__":
-    cfg = TrainConfig(epochs=5000, batch_size=1, lr=1e-3)
+    cfg = TrainConfig(epochs=5000, batch_size=32, lr=1e-3)
 
     base_dir = "data_v3_single"
 
@@ -200,7 +193,7 @@ if __name__ == "__main__":
     sin_cont_paths.sort()
     sin_full_paths.sort()
 
-    train_split = int(1 * len(orientation_paths))
+    train_split = int(0.85 * len(orientation_paths))
 
     train_dataset = FingerprintOrientationDataset(
         orientation_paths[:train_split],
@@ -222,10 +215,104 @@ if __name__ == "__main__":
         sin_full_paths[train_split:],
     )
 
-    model = FingerprintUNet(in_channels=3, out_channels=2)
+    model = FingerprintUNet(in_channels=4, out_channels=2).to(cfg.device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 
+    criterion = FingerprintLossv2().to(cfg.device)
+    total_size = len(train_dataset)
+    current_size = 1
+    max_epochs_per_subset = 1000
+    delta = 0.01
+
+    while current_size <= total_size:
+
+        best_loss = float("inf")
+        epochs_since_last_best_loss = 0.0
+        print(f"\n--- Training on subset of size: {current_size} ---")
+
+        indices = list(range(current_size))
+        subset = Subset(train_dataset, indices)
+
+        dataloader = DataLoader(subset, batch_size=min(current_size, 32), shuffle=True)
+
+        for epoch in range(max_epochs_per_subset):
+            model.train()
+            running = 0.0
+            loss_items = {
+                "mse_cont": 0.0,
+                "mse_full": 0.0,
+                "ssim_cont": 0.0,
+                "ssim_full": 0.0,
+                "sobel_cont": 0.0,
+                "sobel_full": 0.0,
+                "phasor": 0.0,
+            }
+
+            for step, inp in enumerate(
+                tqdm(dataloader, desc=f"Train Epoch {epoch+1}/{cfg.epochs}")
+            ):
+                optimizer.zero_grad()
+                inputs = inp["inputs"].to(cfg.device)  # (B, 4, H, W)
+                pred = model(inputs)
+
+                # Calculate Loss
+                loss, loss_object = criterion(
+                    pred=pred,
+                    spiral_phasor=inp["spiral_phasor"].to(cfg.device),
+                    cos_cont=inp["cos_cont"].to(cfg.device),
+                    cos_full=inp["cos_full"].to(cfg.device),
+                    sin_cont=inp["sin_cont"].to(cfg.device),
+                    sin_full=inp["sin_full"].to(cfg.device),
+                )
+
+                loss.backward()
+                optimizer.step()
+
+                running += loss.item()
+                for key in loss_items:
+                    loss_items[key] += loss_object[key].item()
+
+            avg_loss = running / max(1, len(dataloader))
+            avg_items = {
+                key: val / max(1, len(dataloader)) for key, val in loss_items.items()
+            }
+
+            loss_str = " | ".join(
+                f"{key} = {val:.6f}" for key, val in avg_items.items()
+            )
+            print(
+                f"epoch {epoch+1:03d}/{cfg.epochs} | total loss = {avg_loss:.6f} | {loss_str}"
+            )
+
+            if best_loss - avg_loss > delta:
+                best_loss = avg_loss
+                epochs_since_last_best_loss = 0
+            else:
+                epochs_since_last_best_loss += 1
+
+            if epochs_since_last_best_loss >= 100:
+                print(f"Overfit achieved at epoch {epoch} with loss: {avg_loss:.4f}")
+                break
+
+        checkpoint = {
+            "epoch": epoch,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            # "lr_sched": scheduler.state_dict() if scheduler else None,
+        }
+        torch.save(checkpoint, f"checkpoints_exp/ckpt_{current_size}.pth")
+
+        if current_size == total_size:
+            break
+
+        current_size *= 2
+
+        # Cap the size at the total dataset size so we don't go out of bounds
+        if current_size > total_size:
+            current_size = total_size
+
+    print("\n--- Training on full dataset ---")
     train_loader = DataLoader(
         train_dataset,
         batch_size=cfg.batch_size,
@@ -240,13 +327,6 @@ if __name__ == "__main__":
         shuffle=False,
         num_workers=cfg.num_workers,
         pin_memory=True,
-    )
-
-    scheduler = ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.5,
-        patience=100,
     )
 
     train(
