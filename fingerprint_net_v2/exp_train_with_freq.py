@@ -145,7 +145,7 @@ def train(
 if __name__ == "__main__":
     cfg = TrainConfig(epochs=5000, batch_size=32, lr=1e-3)
 
-    base_dir = "data_v3_single"
+    base_dir = "/data/hot/khangphuanhle/data_v3"
 
     orientation_dir = "orientation_maps"
     minutiae_dir = "minutiae_locations"
@@ -217,15 +217,23 @@ if __name__ == "__main__":
 
     model = FingerprintUNet(in_channels=4, out_channels=2).to(cfg.device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
-
     criterion = FingerprintLossv2().to(cfg.device)
     total_size = len(train_dataset)
-    current_size = 1
+    current_size = 1024
     max_epochs_per_subset = 1000
+    loss_threshold = 1.0
     delta = 0.01
 
+    # load model weights if interrupted
+    model.load_state_dict(
+        torch.load(f"checkpoints_exp/ckpt_{current_size}.pth", map_location=cfg.device)[
+            "model"
+        ]
+    )
+
     while current_size <= total_size:
+        # recreate optimizer for each subset to reset momentum and other states
+        optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 
         best_loss = float("inf")
         epochs_since_last_best_loss = 0.0
@@ -285,7 +293,9 @@ if __name__ == "__main__":
                 f"epoch {epoch+1:03d}/{cfg.epochs} | total loss = {avg_loss:.6f} | {loss_str}"
             )
 
-            if best_loss - avg_loss > delta:
+            if avg_loss < loss_threshold:
+                epochs_since_last_best_loss += 1
+            elif best_loss - avg_loss > delta:
                 best_loss = avg_loss
                 epochs_since_last_best_loss = 0
             else:
@@ -328,6 +338,8 @@ if __name__ == "__main__":
         num_workers=cfg.num_workers,
         pin_memory=True,
     )
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 
     train(
         model,
