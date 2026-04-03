@@ -70,9 +70,9 @@ def seed_centers_from_mask(seed_img):
 
 if __name__ == "__main__":
     # Generate orientation map
-    singularity_type = 3
-    width = 256
-    height = 256
+    singularity_type = 5
+    width = 300
+    height = 400
     margin = 0  # kept only for compatibility with existing filter APIs
     padding = 0
     f_print1 = np.zeros((height, width), dtype=np.float32)
@@ -86,8 +86,8 @@ if __name__ == "__main__":
     initialize_maps(f_print1)
     print("parameter initialization successful.")
 
-    seed_pos(f_print1, height, width, margin, n_seeds=1000)
-    seed_pos(f_print_compare, height, width, margin, n_seeds=1000)
+    seed_pos(f_print1, height, width, margin, n_seeds=50)
+    seed_pos(f_print_compare, height, width, margin, n_seeds=50)
 
     print("seeding successful.")
     g_cap = set_param_canonical(singularity_type)
@@ -107,6 +107,9 @@ if __name__ == "__main__":
     print("core_positions:", core_positions)
     print("delta_positions:", delta_positions)
     orientation_map = o_map.getOrientationMap()
+    orientation_map = (
+        np.pi / 2 - orientation_map
+    ) % np.pi  # Ensure values are in [0, pi)
     print("orientation map generated.")
 
     freq_map = sel_n_merg_densitymap(H=height, W=width)
@@ -147,7 +150,11 @@ if __name__ == "__main__":
     torch_out_t = f_print1_tensor
     torch_out_compare_t = f_print_compare_tensor
 
-    for i in range(3):
+    for i in range(14):
+        plt.imsave(
+            f"output_{i}.png", to_display(torch_out_t.cpu().numpy()), cmap="gray"
+        )
+
         with torch.no_grad():
             torch_out_t = flayer(
                 torch_out_t,  # seeded image
@@ -155,12 +162,12 @@ if __name__ == "__main__":
                 freq_map_tensor,  # already 1..100
             )  # tensor
 
-        with torch.no_grad():
-            torch_out_compare_t = flayer(
-                torch_out_compare_t,  # seeded image
-                orient_map_tensor,  # now 1..180
-                freq_map_tensor,  # already 1..100
-            )  # tensor
+        # with torch.no_grad():
+        #     torch_out_compare_t = flayer(
+        #         torch_out_compare_t,  # seeded image
+        #         orient_map_tensor,  # now 1..180
+        #         freq_map_tensor,  # already 1..100
+        #     )  # tensor
 
     torch_out = torch_out_t.cpu().numpy()
     torch_out_compare = torch_out_compare_t.cpu().numpy()
