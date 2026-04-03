@@ -4,7 +4,7 @@ import torch.nn as nn
 from model import FingerprintUNet
 from loss_functions import FingerprintLossv2
 from torch.utils.data import DataLoader, Subset
-from dataset import FingerprintOrientationDataset
+from dataset import FingerprintOrientationDatasetV3
 
 from dataclasses import dataclass
 from tqdm import tqdm
@@ -139,7 +139,7 @@ def train(
                 "optimizer": optimizer.state_dict(),
                 # "lr_sched": scheduler.state_dict() if scheduler else None,
             }
-            torch.save(checkpoint, "checkpoints_exp/ckpt_full.pth")
+            torch.save(checkpoint, "checkpoints_exp_minutiae/ckpt_full.pth")
 
 
 if __name__ == "__main__":
@@ -195,7 +195,7 @@ if __name__ == "__main__":
 
     train_split = int(0.85 * len(orientation_paths))
 
-    train_dataset = FingerprintOrientationDataset(
+    train_dataset = FingerprintOrientationDatasetV3(
         orientation_paths[:train_split],
         minutiae_paths[:train_split],
         frequency_paths[:train_split],
@@ -205,7 +205,7 @@ if __name__ == "__main__":
         sin_full_paths[:train_split],
     )
 
-    val_dataset = FingerprintOrientationDataset(
+    val_dataset = FingerprintOrientationDatasetV3(
         orientation_paths[train_split:],
         minutiae_paths[train_split:],
         frequency_paths[train_split:],
@@ -215,23 +215,33 @@ if __name__ == "__main__":
         sin_full_paths[train_split:],
     )
 
-    model = FingerprintUNet(in_channels=4, out_channels=2).to(cfg.device)
+    
+    # test print shape of data and assert in_channels = shape
+    sample = train_dataset[0]
+    print(f"Input shape: {sample['inputs'].shape}")
+
+    num_input_channels = sample["inputs"].shape[0]
+    print("initializing model with input channels:", num_input_channels)
+    model = FingerprintUNet(in_channels=num_input_channels, out_channels=2).to(cfg.device)
+
+    assert sample['inputs'].shape[0] == num_input_channels, f"Expected {num_input_channels} input channels, got {sample['inputs'].shape[0]}"
 
     criterion = FingerprintLossv2().to(cfg.device)
     total_size = len(train_dataset)
-    current_size = 1024
-    max_epochs_per_subset = 1000
+    current_size = 4096
+    max_epochs_per_subset = 2000
     loss_threshold = 1.0
     delta = 0.01
 
-    # load model weights if interrupted
+    # # load model weights if interrupted
     model.load_state_dict(
-        torch.load(f"/home/khangphuanhle/fingerprint-generator/checkpoints_exp/ckpt_{current_size}.pth", map_location=cfg.device)[
+        torch.load(f"/home/khangphuanhle/fingerprint-generator/checkpoints_exp_minutiae/ckpt_{current_size // 2}.pth", map_location=cfg.device)[
             "model"
         ]
     )
 
-    while current_size <= total_size:
+    # training stage
+    while current_size <= 256:
         # recreate optimizer for each subset to reset momentum and other states
         optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 
@@ -311,7 +321,121 @@ if __name__ == "__main__":
             "optimizer": optimizer.state_dict(),
             # "lr_sched": scheduler.state_dict() if scheduler else None,
         }
-        torch.save(checkpoint, f"checkpoints_exp/ckpt_{current_size}.pth")
+        torch.save(checkpoint, f"checkpoints_exp_minutiae/ckpt_{current_size}.pth")
+        current_size *= 2
+
+    while current_size < total_size:
+        # recreate optimizer for each subset to reset momentum and other states
+        optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+
+        best_loss = float("inf")
+        epochs_since_last_best_loss = 0.0
+        print(f"\n--- Training on subset of size: {current_size} ---")
+
+        indices = list(range(current_size))
+        subset = Subset(train_dataset, indices)
+
+        dataloader = DataLoader(subset, batch_size=min(current_size, 32), shuffle=True)
+        validation_dataloader = DataLoader(
+            Subset(val_dataset, list(range(min(current_size, len(val_dataset))))),
+            batch_size=min(current_size, 32),
+            shuffle=False,
+        )
+
+        for epoch in range(max_epochs_per_subset):
+            model.train()
+            running = 0.0
+            loss_items = {
+                "mse_cont": 0.0,
+                "mse_full": 0.0,
+                "ssim_cont": 0.0,
+                "ssim_full": 0.0,
+                "sobel_cont": 0.0,
+                "sobel_full": 0.0,
+                "phasor": 0.0,
+            }
+
+            for step, inp in enumerate(
+                tqdm(dataloader, desc=f"Train Epoch {epoch+1}/{cfg.epochs}")
+            ):
+                optimizer.zero_grad()
+                inputs = inp["inputs"].to(cfg.device)  # (B, 4, H, W)
+                pred = model(inputs)
+
+                # Calculate Loss
+                loss, loss_object = criterion(
+                    pred=pred,
+                    spiral_phasor=inp["spiral_phasor"].to(cfg.device),
+                    cos_cont=inp["cos_cont"].to(cfg.device),
+                    cos_full=inp["cos_full"].to(cfg.device),
+                    sin_cont=inp["sin_cont"].to(cfg.device),
+                    sin_full=inp["sin_full"].to(cfg.device),
+                )
+
+                loss.backward()
+                optimizer.step()
+
+                running += loss.item()
+                for key in loss_items:
+                    loss_items[key] += loss_object[key].item()
+
+            avg_loss = running / max(1, len(dataloader))
+            avg_items = {
+                key: val / max(1, len(dataloader)) for key, val in loss_items.items()
+            }
+
+            loss_str = " | ".join(
+                f"{key} = {val:.6f}" for key, val in avg_items.items()
+            )
+            print(
+                f"epoch {epoch+1:03d}/{cfg.epochs} | total loss = {avg_loss:.6f} | {loss_str}"
+            )
+
+            validation_running = 0.0
+            with torch.no_grad():
+                model.eval()
+                for step, inp in enumerate(
+                    tqdm(
+                        validation_dataloader,
+                        desc=f"Validation {epoch+1}/{cfg.epochs}",
+                    )
+                ):
+                    inputs = inp["inputs"].to(cfg.device)  # (B, 4, H, W)
+                    pred = model(inputs)
+
+                    # Calculate Loss
+                    loss, loss_object = criterion(
+                        pred=pred,
+                        spiral_phasor=inp["spiral_phasor"].to(cfg.device),
+                        cos_cont=inp["cos_cont"].to(cfg.device),
+                        cos_full=inp["cos_full"].to(cfg.device),
+                        sin_cont=inp["sin_cont"].to(cfg.device),
+                        sin_full=inp["sin_full"].to(cfg.device),
+                    )
+
+                    validation_running += loss.item()
+
+                avg_val_loss = validation_running / max(1, len(validation_dataloader))
+
+                if avg_val_loss < loss_threshold:
+                    epochs_since_last_best_loss += 1
+                elif best_loss - avg_val_loss > delta:
+                    best_loss = avg_val_loss
+                    epochs_since_last_best_loss = 0
+                else:
+                    epochs_since_last_best_loss += 1
+
+                if epochs_since_last_best_loss >= 250:
+                    print(f"Overfit achieved at epoch {epoch} with loss: {avg_val_loss:.4f}")
+                    break
+
+        checkpoint = {
+            "epoch": epoch,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            # "lr_sched": scheduler.state_dict() if scheduler else None,
+        }
+        torch.save(checkpoint, f"checkpoints_exp_minutiae/ckpt_{current_size}.pth")
 
         if current_size == total_size:
             break
@@ -337,7 +461,7 @@ if __name__ == "__main__":
         shuffle=False,
         num_workers=cfg.num_workers,
         pin_memory=True,
-    )
+    )   
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 

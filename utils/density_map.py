@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 # Example variables (set your own paths and counts)
-path_density_maps = "density_maps"
+path_density_maps = "/home/khangphuanhle/fingerprint-generator/density_maps"
 density_map_count = 2000
 
 

@@ -5,3 +5,5 @@ __*
 *data*/
 checkpoints*/
 *.tar
+*.err
+*.out
